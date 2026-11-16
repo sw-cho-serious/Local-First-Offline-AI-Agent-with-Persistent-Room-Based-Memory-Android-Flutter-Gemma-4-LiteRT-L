@@ -1,6 +1,6 @@
-/// Lightweight local token estimator for Gemma 4 (3,072-token context budget).
+/// Lightweight local token estimator for Gemma 4 (8,192-token context budget).
 class TokenEstimator {
-  static const int maxContextTokens = 3072;
+  static const int maxContextTokens = 8192;
 
   /// Estimates tokens without model compute:
   /// - CJK / non-ASCII chars ~= 1.8 tokens/char

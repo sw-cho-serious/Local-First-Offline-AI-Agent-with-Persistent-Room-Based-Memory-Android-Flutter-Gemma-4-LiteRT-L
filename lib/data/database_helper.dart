@@ -888,17 +888,82 @@ class DatabaseHelper {
     final rooms = await getRooms();
     final roomMap = {for (final r in rooms) r.roomId: r};
 
+    const stopWords = {
+      '我們',
+      '聊怎樣了',
+      '聊了什麼',
+      '怎麼樣',
+      '什麼',
+      '在哪',
+      '請問',
+      '記得',
+      '一下',
+      '最近',
+    };
     final tokens = query
         .trim()
         .toLowerCase()
-        .split(RegExp(r'\s+'))
-        .where((t) => t.isNotEmpty)
+        .split(RegExp(r'[\s,，。？?！!]+'))
+        .map((t) {
+          var clean = t;
+          if (clean.length > 2 && clean.endsWith('房間')) {
+            clean = clean.substring(0, clean.length - 2);
+          } else if (clean.length > 1 && clean.endsWith('房')) {
+            clean = clean.substring(0, clean.length - 1);
+          }
+          return clean;
+        })
+        .where((t) => t.isNotEmpty && !stopWords.contains(t))
         .toList();
 
-    final hits =
+    final strictHits =
+        <({String roomId, String roomTitle, String source, String snippet})>[];
+    final looseHits =
         <({String roomId, String roomTitle, String source, String snippet})>[];
 
-    // 1. Search room todos & notes in `data`
+    void addHit(
+      List<({String roomId, String roomTitle, String source, String snippet})> target, {
+      required String roomId,
+      required String roomTitle,
+      required String source,
+      required String snippet,
+    }) {
+      if (target.length >= 8) return;
+      if (target.any((h) => h.roomId == roomId && h.snippet == snippet)) return;
+      target.add((
+        roomId: roomId,
+        roomTitle: roomTitle,
+        source: source,
+        snippet: snippet,
+      ));
+    }
+
+    // 1. Check matching room summaries
+    if (tokens.isNotEmpty) {
+      for (final r in rooms) {
+        if (r.rollingSummary.trim().isEmpty) continue;
+        final hay = '${r.title} ${r.rollingSummary}'.toLowerCase();
+        if (tokens.every(hay.contains)) {
+          addHit(
+            strictHits,
+            roomId: r.roomId,
+            roomTitle: r.title,
+            source: '摘要',
+            snippet: r.rollingSummary.trim(),
+          );
+        } else if (tokens.any(hay.contains)) {
+          addHit(
+            looseHits,
+            roomId: r.roomId,
+            roomTitle: r.title,
+            source: '摘要',
+            snippet: r.rollingSummary.trim(),
+          );
+        }
+      }
+    }
+
+    // 2. Search room todos & notes in `data`
     final dataRows = await db.query('data', where: 'is_deleted = 0');
     for (final row in dataRows) {
       final roomId = (row['room_id'] ?? '').toString();
@@ -907,23 +972,38 @@ class DatabaseHelper {
       for (final rawLine in value.split('\n')) {
         final line = rawLine.trim();
         if (line.isEmpty) continue;
-        final lower = line.toLowerCase();
-        final matched = tokens.isEmpty
-            ? !line.startsWith('- [x]') && !line.startsWith('- [O]')
-            : tokens.every(lower.contains);
-        if (matched) {
-          hits.add((
+        final hay = '$roomTitle $line'.toLowerCase();
+        if (tokens.isEmpty) {
+          if (!line.startsWith('- [x]') && !line.startsWith('- [O]')) {
+            addHit(
+              strictHits,
+              roomId: roomId,
+              roomTitle: roomTitle,
+              source: '待辦',
+              snippet: line,
+            );
+          }
+        } else if (tokens.every(hay.contains)) {
+          addHit(
+            strictHits,
             roomId: roomId,
             roomTitle: roomTitle,
             source: '待辦',
             snippet: line,
-          ));
-          if (hits.length >= 8) return hits;
+          );
+        } else if (tokens.any(hay.contains)) {
+          addHit(
+            looseHits,
+            roomId: roomId,
+            roomTitle: roomTitle,
+            source: '待辦',
+            snippet: line,
+          );
         }
       }
     }
 
-    // 2. Search chat history in `messages` (newest first)
+    // 3. Search chat history in `messages` (newest first, excluding search commands themselves)
     if (tokens.isNotEmpty) {
       final msgRows = await db.query(
         'messages',
@@ -937,20 +1017,31 @@ class DatabaseHelper {
         final role = (row['role'] ?? '').toString();
         final content = (row['content'] ?? '').toString().trim();
         if (content.isEmpty) continue;
-        final lower = content.toLowerCase();
-        if (tokens.every(lower.contains)) {
-          hits.add((
+        if (content.startsWith('@搜記憶') || content.startsWith('@查記憶')) {
+          continue;
+        }
+        final hay = '$roomTitle $content'.toLowerCase();
+        if (tokens.every(hay.contains)) {
+          addHit(
+            strictHits,
             roomId: roomId,
             roomTitle: roomTitle,
             source: role == 'user' ? '你說過' : 'KODARI',
             snippet: content,
-          ));
-          if (hits.length >= 8) return hits;
+          );
+        } else if (tokens.any(hay.contains)) {
+          addHit(
+            looseHits,
+            roomId: roomId,
+            roomTitle: roomTitle,
+            source: role == 'user' ? '你說過' : 'KODARI',
+            snippet: content,
+          );
         }
       }
     }
 
-    return hits;
+    return strictHits.isNotEmpty ? strictHits : looseHits;
   }
 
   // ---------------- Offline Engineering Lookup Tables ----------------

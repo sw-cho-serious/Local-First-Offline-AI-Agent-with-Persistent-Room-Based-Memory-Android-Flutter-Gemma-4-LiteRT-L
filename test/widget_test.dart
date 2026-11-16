@@ -337,5 +337,16 @@ void main() {
       ToolRegistry.normalizeSpokenCommand('嘿可達，搜記憶 588mm'),
       '@搜記憶 588mm',
     );
+
+    // Search command in main room should not match itself, and should match room title "示範專案 A"
+    await db.insertMessage(
+      roomId: 'main',
+      role: 'user',
+      content: '@搜記憶 示範專案A房 我們聊怎樣了',
+    );
+    final roomHits = await db.searchGlobalMemory('示範專案 A 我們聊怎樣了');
+    expect(roomHits, isNotEmpty);
+    expect(roomHits.any((h) => h.snippet.startsWith('@搜記憶')), isFalse);
+    expect(roomHits.any((h) => h.roomId == 'para:projects:demo_project_a'), isTrue);
   });
 }

@@ -20,7 +20,7 @@ class GemmaLiteRtEngine implements LlmEngine {
     required this.toolRegistry,
   });
 
-  static const int maxContextTokens = 3072;
+  static const int maxContextTokens = 8192;
   static const int maxOutputTokens = 512;
 
   final DatabaseHelper db;

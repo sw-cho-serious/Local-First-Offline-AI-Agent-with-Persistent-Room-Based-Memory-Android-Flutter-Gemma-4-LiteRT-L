@@ -1075,7 +1075,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
                             ),
                             TextSpan(
-                              text: '$compact/3.0k${ratio > 0.85 ? ' ✂️' : ''}',
+                              text: '$compact/8.0k${ratio > 0.85 ? ' ✂️' : ''}',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: meterColor,
