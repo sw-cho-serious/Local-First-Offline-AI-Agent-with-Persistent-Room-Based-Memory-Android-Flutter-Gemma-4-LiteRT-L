@@ -1131,36 +1131,42 @@ class _HomeScreenState extends State<HomeScreen> {
               final active = tts.autoRead || tts.isSpeaking;
               return Padding(
                 padding: const EdgeInsets.only(right: 4),
-                child: IconButton(
-                  tooltip: tts.isSpeaking
-                      ? '停止朗讀'
-                      : (tts.autoRead ? '關閉自動朗讀' : '開啟自動朗讀'),
-                  style: IconButton.styleFrom(
-                    backgroundColor: active
-                        ? const Color(0xFFF59E0B).withValues(alpha: 0.16)
-                        : Colors.white.withValues(alpha: 0.06),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(11),
+                child: GestureDetector(
+                  onLongPress: () => showTtsSettingsModal(
+                    context: context,
+                    onToast: _showToast,
+                  ),
+                  child: IconButton(
+                    tooltip: tts.isSpeaking
+                        ? '停止朗讀（長按調音色語速）'
+                        : (tts.autoRead ? '關閉自動朗讀（長按調音色語速）' : '開啟自動朗讀（長按調音色語速）'),
+                    style: IconButton.styleFrom(
+                      backgroundColor: active
+                          ? const Color(0xFFF59E0B).withValues(alpha: 0.16)
+                          : Colors.white.withValues(alpha: 0.06),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11),
+                      ),
                     ),
+                    icon: Icon(
+                      tts.isSpeaking
+                          ? Icons.stop_circle_outlined
+                          : (tts.autoRead
+                              ? Icons.volume_up_rounded
+                              : Icons.volume_off_outlined),
+                      color: active ? const Color(0xFFFCD34D) : const Color(0xFF9CA3AF),
+                      size: 20,
+                    ),
+                    onPressed: () {
+                      if (tts.isSpeaking) {
+                        unawaited(tts.stop());
+                        _showToast('🔇 已停止朗讀');
+                      } else {
+                        tts.toggleAutoRead();
+                        _showToast(tts.autoRead ? '🔊 已開啟自動朗讀（長按可調音色）' : '🔇 已關閉自動朗讀');
+                      }
+                    },
                   ),
-                  icon: Icon(
-                    tts.isSpeaking
-                        ? Icons.stop_circle_outlined
-                        : (tts.autoRead
-                            ? Icons.volume_up_rounded
-                            : Icons.volume_off_outlined),
-                    color: active ? const Color(0xFFFCD34D) : const Color(0xFF9CA3AF),
-                    size: 20,
-                  ),
-                  onPressed: () {
-                    if (tts.isSpeaking) {
-                      unawaited(tts.stop());
-                      _showToast('🔇 已停止朗讀');
-                    } else {
-                      tts.toggleAutoRead();
-                      _showToast(tts.autoRead ? '🔊 已開啟自動朗讀' : '🔇 已關閉自動朗讀');
-                    }
-                  },
                 ),
               );
             },
@@ -1302,6 +1308,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   widget.syncService.scheduleDebouncedPush();
                   await _loadRoomContent(_currentRoomId);
                   break;
+                case 'tts_settings':
+                  await showTtsSettingsModal(
+                    context: context,
+                    onToast: _showToast,
+                  );
+                  break;
                 case 'settings':
                   await showModelSettingsModal(
                     context: context,
@@ -1321,6 +1333,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (!room.isMain)
                 const PopupMenuItem(value: 'delete_room', child: Text('🗑️ 刪除此工作房間', style: TextStyle(color: Color(0xFFFB7185), fontSize: 13))),
               const PopupMenuItem(value: 'traits', child: Text('🧠 檢視／編輯 KODARI 靈魂', style: TextStyle(color: Colors.white, fontSize: 13))),
+              const PopupMenuItem(value: 'tts_settings', child: Text('🔊 語音語速與音色設定', style: TextStyle(color: Colors.white, fontSize: 13))),
               const PopupMenuItem(value: 'settings', child: Text('⚙️ 模型與 GPU/CPU 設定', style: TextStyle(color: Colors.white, fontSize: 13))),
             ],
           ),

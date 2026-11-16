@@ -7,6 +7,7 @@ import '../../data/database_helper.dart';
 import '../../data/models.dart';
 import '../../engine/llm_engine.dart';
 import '../../sync/cloud_sync_service.dart';
+import '../../tools/tts_service.dart';
 import 'spirit_avatar.dart';
 
 /// 📋 Global Pending Memo Inbox Modal (Starred photos/messages + Cross-room pending todos)
@@ -1234,3 +1235,151 @@ class _ImportSnapshotDialogState extends State<_ImportSnapshotDialog> {
     );
   }
 }
+
+/// 🔊 Built-in TTS Rate, Pitch & Voice Selector Modal
+Future<void> showTtsSettingsModal({
+  required BuildContext context,
+  required void Function(String msg) onToast,
+}) async {
+  final tts = TtsService.instance;
+  final voices = await tts.getAvailableChineseVoices();
+  if (!context.mounted) return;
+
+  var rate = tts.speechRate;
+  var pitch = tts.pitch;
+  var selectedVoiceName = tts.voiceName ?? '';
+
+  await showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.72),
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1A1E26),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+            ),
+            title: const Text(
+              '🔊 語音語速與音色設定',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+            content: SizedBox(
+              width: 400,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('語速（預設 0.55）', style: TextStyle(color: Color(0xFFD1D5DB), fontSize: 13)),
+                        Text(rate.toStringAsFixed(2), style: const TextStyle(color: Color(0xFFFCD34D), fontSize: 13, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    Slider(
+                      value: rate,
+                      min: 0.30,
+                      max: 0.95,
+                      divisions: 13,
+                      activeColor: const Color(0xFFF59E0B),
+                      onChanged: (v) async {
+                        setState(() => rate = v);
+                        await tts.updateSettings(rate: v);
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('音調（預設 1.00）', style: TextStyle(color: Color(0xFFD1D5DB), fontSize: 13)),
+                        Text(pitch.toStringAsFixed(2), style: const TextStyle(color: Color(0xFFFCD34D), fontSize: 13, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    Slider(
+                      value: pitch,
+                      min: 0.65,
+                      max: 1.40,
+                      divisions: 15,
+                      activeColor: const Color(0xFF38BDF8),
+                      onChanged: (v) async {
+                        setState(() => pitch = v);
+                        await tts.updateSettings(pitch: v);
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '系統中文聲線（共 ${voices.length} 組）',
+                      style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    if (voices.isEmpty)
+                      const Text(
+                        '目前引擎未回傳多組聲線，仍可透過上方「語速 / 音調」微調。',
+                        style: TextStyle(color: Color(0xFF6B7280), fontSize: 12),
+                      )
+                    else
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('系統預設', style: TextStyle(fontSize: 11.5)),
+                            selected: selectedVoiceName.isEmpty,
+                            onSelected: (_) async {
+                              setState(() => selectedVoiceName = '');
+                              await tts.updateSettings(clearVoice: true);
+                            },
+                          ),
+                          for (var i = 0; i < voices.length; i++)
+                            ChoiceChip(
+                              label: Text(
+                                '聲線 ${i + 1} (${voices[i].name.replaceAll('cmn-tw-x-', '').replaceAll('-local', '').replaceAll('-network', '☁')})',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              selected: selectedVoiceName == voices[i].name,
+                              onSelected: (_) async {
+                                setState(() => selectedVoiceName = voices[i].name);
+                                await tts.updateSettings(voice: voices[i]);
+                              },
+                            ),
+                        ],
+                      ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFFDE68A),
+                          side: BorderSide(color: const Color(0xFFF59E0B).withValues(alpha: 0.45)),
+                        ),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        label: const Text('試聽目前聲音效果'),
+                        onPressed: () {
+                          tts.speak('嗨，我是你的現場助理 KODARI，這個語速和音調聽起來順耳嗎？');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  tts.stop();
+                  Navigator.of(ctx).pop();
+                  onToast('🔊 語音設定已儲存');
+                },
+                child: const Text('完成', style: TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
