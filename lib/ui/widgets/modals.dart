@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/token_estimator.dart';
 import '../../data/database_helper.dart';
 import '../../data/models.dart';
 import '../../engine/llm_engine.dart';
@@ -659,6 +660,7 @@ Future<void> showTraitsEditorModal({
                         expands: true,
                         textAlignVertical: TextAlignVertical.top,
                         style: const TextStyle(color: Color(0xFFE5E7EB), fontSize: 13),
+                        onChanged: (_) => setState(() {}),
                         decoration: InputDecoration(
                           filled: true,
                           fillColor: const Color(0xFF0E1014),
@@ -666,7 +668,26 @@ Future<void> showTraitsEditorModal({
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
+                    Builder(
+                      builder: (_) {
+                        var totalTokens = 0;
+                        for (final k in keys) {
+                          final txt = k == activeKey ? editor.text : (traits[k] ?? '');
+                          totalTokens += TokenEstimator.estimateTextTokens(txt);
+                        }
+                        final over = totalTokens >= 800;
+                        return Text(
+                          '目前靈魂共佔約 $totalTokens tokens（建議 < 800）',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: over ? const Color(0xFFF59E0B) : const Color(0xFF9CA3AF),
+                            fontWeight: over ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(

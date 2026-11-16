@@ -292,8 +292,16 @@ class GemmaLiteRtEngine implements LlmEngine {
         ..writeln(activeRoomNames);
     }
 
+    final now = DateTime.now();
+    const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+    final nowStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} '
+        '(週${weekdays[now.weekday - 1]})';
+
     buf
       ..writeln()
+      ..writeln('【當前手機系統時間】$nowStr（排程、提醒與「今天／明天」一律以此為基準）')
       ..writeln('【當前房間】${room?.title ?? 'KODARI 主房間'} (${room?.roomId ?? roomId})');
 
     if (room != null && room.rollingSummary.trim().isNotEmpty) {

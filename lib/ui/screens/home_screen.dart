@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/image_compressor.dart';
+import '../../core/token_estimator.dart';
 import '../../data/database_helper.dart';
 import '../../data/models.dart';
 import '../../engine/llm_engine.dart';
@@ -42,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<TodoItem> _currentTodos = [];
   List<ChatMessageRecord> _messages = [];
   int _pendingMemoCount = 0;
+  int _contextTokens = 0;
 
   bool _taskDrawerExpanded = false;
   bool _atMenuVisible = false;
@@ -116,6 +118,29 @@ class _HomeScreenState extends State<HomeScreen> {
     final todos = await widget.db.getRoomTodos(room.roomId);
     final msgs = await widget.db.getMessages(room.roomId);
     final memo = await widget.db.getGlobalPendingMemo();
+    final traits = await widget.db.getAllTraits();
+
+    // Estimate active context tokens (Traits + notes + summary + replay after divider/cursor)
+    final minId = room.summarizedUntilMsgId;
+    var activeMsgs = msgs.where((m) => m.id > minId).toList();
+    final lastDivIdx = activeMsgs.lastIndexWhere((m) => m.role == 'divider');
+    if (lastDivIdx != -1) {
+      activeMsgs = activeMsgs.sublist(lastDivIdx + 1);
+    }
+    if (activeMsgs.length > 8) {
+      activeMsgs = activeMsgs.sublist(activeMsgs.length - 8);
+    }
+    final estimatedTokens = TokenEstimator.estimateContextTokens(
+      traitTexts: traits.values,
+      roomNotes: todos.map((t) => t.text).join('\n'),
+      rollingSummary: room.rollingSummary,
+      activeMessages: activeMsgs.map(
+        (m) => (
+          content: m.content,
+          hasImage: (m.imagePath ?? '').trim().isNotEmpty,
+        ),
+      ),
+    );
 
     if (!mounted) return;
 
@@ -125,6 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _currentTodos = todos;
       _messages = msgs;
       _pendingMemoCount = memo.totalCount;
+      _contextTokens = estimatedTokens;
       _liveSpiritState = _isGenerating ? _liveSpiritState : room.avatarState;
     });
     _scrollToBottom();
@@ -956,10 +982,38 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-                  Text(
-                    widget.engine.activeBackendLabel,
-                    style: const TextStyle(fontSize: 11.5, color: Color(0xFF9CA3AF)),
-                    overflow: TextOverflow.ellipsis,
+                  Builder(
+                    builder: (_) {
+                      final ratio = _contextTokens / TokenEstimator.maxContextTokens;
+                      final Color meterColor;
+                      if (ratio > 0.85) {
+                        meterColor = const Color(0xFFFB7185);
+                      } else if (ratio >= 0.70) {
+                        meterColor = const Color(0xFFF59E0B);
+                      } else {
+                        meterColor = const Color(0xFF9CA3AF);
+                      }
+                      final compact = TokenEstimator.formatCompact(_contextTokens);
+                      return Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '${widget.engine.activeBackendLabel} • ',
+                              style: const TextStyle(fontSize: 11.5, color: Color(0xFF9CA3AF)),
+                            ),
+                            TextSpan(
+                              text: '$compact / 3.0k${ratio > 0.85 ? ' ✂️' : ''}',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: meterColor,
+                                fontWeight: ratio >= 0.70 ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      );
+                    },
                   ),
                 ],
               ),
@@ -1100,6 +1154,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onToast: _showToast,
                   );
                   widget.syncService.scheduleDebouncedPush();
+                  await _loadRoomContent(_currentRoomId);
                   break;
                 case 'settings':
                   await showModelSettingsModal(

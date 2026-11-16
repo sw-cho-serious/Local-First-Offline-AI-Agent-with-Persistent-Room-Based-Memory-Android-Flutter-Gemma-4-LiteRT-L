@@ -338,7 +338,7 @@ class ToolRegistry {
     final title = (args['title'] ?? 'KODARI 現場提醒').toString();
     final body = (args['body'] ?? title).toString();
     final rawTime = (args['trigger_iso'] ?? '').toString();
-    final triggerTime = DateTime.tryParse(rawTime) ?? parseLooseDateTime(body);
+    final triggerTime = _resolveToolDateTime(rawTime, '$title $body');
 
     final res = await NativeActions.scheduleReminder(
       title: title,
@@ -370,7 +370,7 @@ class ToolRegistry {
     final title = (args['title'] ?? '工作排程事件').toString();
     final desc = (args['description'] ?? '由《HAKO • KODARI》建立').toString();
     final rawStart = (args['start_iso'] ?? '').toString();
-    final startTime = DateTime.tryParse(rawStart) ?? parseLooseDateTime(title);
+    final startTime = _resolveToolDateTime(rawStart, '$title $desc');
     final h = startTime.hour.toString().padLeft(2, '0');
     final m = startTime.minute.toString().padLeft(2, '0');
     final display = '${startTime.year}/${startTime.month}/${startTime.day} $h:$m';
@@ -397,6 +397,27 @@ class ToolRegistry {
       card: card,
       directReply: '日曆卡片排好了，確認沒錯點一下直接寫進系統日曆：',
     );
+  }
+
+  /// Resolves an ISO timestamp from the LLM while guarding against stale model-cutoff years (e.g. 2025).
+  static DateTime _resolveToolDateTime(String rawIso, String fallbackText) {
+    final parsed = DateTime.tryParse(rawIso.trim())?.toLocal();
+    final loose = parseLooseDateTime(fallbackText);
+    if (parsed == null) return loose;
+
+    final now = DateTime.now();
+    // If model hallucinated a stale past date (> 7 days ago, e.g. training cutoff 2025),
+    // keep the model's hour/minute if meaningful, and anchor the date to today/loose fallback.
+    if (parsed.isBefore(now.subtract(const Duration(days: 7)))) {
+      return DateTime(
+        loose.year,
+        loose.month,
+        loose.day,
+        parsed.hour,
+        parsed.minute,
+      );
+    }
+    return parsed;
   }
 
   /// Parses simple Chinese time hints ("明天 8點", "08:30", "後天早上") for offline fallback.

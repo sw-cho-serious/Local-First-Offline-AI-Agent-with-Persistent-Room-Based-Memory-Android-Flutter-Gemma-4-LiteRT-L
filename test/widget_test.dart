@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:xiaoliu/core/async_mutex.dart';
 import 'package:xiaoliu/core/image_compressor.dart';
+import 'package:xiaoliu/core/token_estimator.dart';
 import 'package:xiaoliu/data/database_helper.dart';
 import 'package:xiaoliu/tools/tool_registry.dart';
 
@@ -51,7 +52,7 @@ void main() {
 
     final rooms = await db.getRooms();
     expect(rooms.first.roomId, 'main');
-    expect(rooms.any((r) => r.roomId == 'para:projects:正東_RT054'), isTrue);
+    expect(rooms.any((r) => r.roomId == 'para:projects:demo_project_a'), isTrue);
 
     final hits094 = await db.lookupProfiles('094');
     expect(hits094.first.code, '094');
@@ -64,7 +65,7 @@ void main() {
   });
 
   test('data_write appends without wiping old todos and computes progress', () async {
-    const roomId = 'para:projects:正東_RT054';
+    const roomId = 'para:projects:demo_project_a';
     final before = await db.getRoomTodos(roomId);
     expect(before.length, 3);
 
@@ -87,30 +88,30 @@ void main() {
     final userMsg = await db.insertMessage(
       roomId: 'main',
       role: 'user',
-      content: '正東 RT054 蓋板補切兩支 343mm',
+      content: '示範專案 A 蓋板補切兩支 343mm',
     );
 
     await db.archiveUserMessageToRoom(
       messageId: userMsg.id,
-      targetRoomId: 'para:projects:正東_RT054',
+      targetRoomId: 'para:projects:demo_project_a',
       addAsTodo: true,
     );
 
     final mainMsgs = await db.getMessages('main');
     final updated = mainMsgs.firstWhere((m) => m.id == userMsg.id);
     expect(updated.archivedColorHex, '#F59E0B');
-    expect(updated.archivedTitle, contains('正東'));
+    expect(updated.archivedTitle, contains('示範專案 A'));
 
-    final targetMsgs = await db.getMessages('para:projects:正東_RT054');
+    final targetMsgs = await db.getMessages('para:projects:demo_project_a');
     expect(targetMsgs.any((m) => m.content.contains('343mm')), isTrue);
 
-    final targetTodos = await db.getRoomTodos('para:projects:正東_RT054');
+    final targetTodos = await db.getRoomTodos('para:projects:demo_project_a');
     expect(targetTodos.any((t) => t.text.contains('343mm')), isTrue);
   });
 
   test('Global pending memo aggregates starred messages and incomplete todos', () async {
     final msg = await db.insertMessage(
-      roomId: 'para:projects:國弘_098F+G',
+      roomId: 'para:projects:demo_project_b',
       role: 'user',
       content: '白板草稿先暫存',
       isStarred: true,
@@ -177,7 +178,7 @@ void main() {
     final roomsAfterMainAttempt = await db.getRooms();
     expect(roomsAfterMainAttempt.any((r) => r.roomId == 'main'), isTrue);
 
-    const targetRoomId = 'para:projects:正東_RT054';
+    const targetRoomId = 'para:projects:demo_project_a';
     await db.insertMessage(
       roomId: targetRoomId,
       role: 'user',
@@ -226,8 +227,8 @@ void main() {
           'is_deleted': 0,
         },
         {
-          'room_id': 'para:projects:國弘_098F+G',
-          'title': '國弘 098F+G（遠端已刪）',
+          'room_id': 'para:projects:demo_project_b',
+          'title': '示範專案 B（遠端已刪）',
           'subtitle': '已刪除',
           'color_hex': '#10B981',
           'avatar_state': 'idle',
@@ -256,7 +257,7 @@ void main() {
 
     final roomsAfterMerge = await db.getRooms();
     expect(roomsAfterMerge.any((r) => r.roomId == 'para:projects:Fold6_新案場'), isTrue);
-    expect(roomsAfterMerge.any((r) => r.roomId == 'para:projects:國弘_098F+G'), isFalse);
+    expect(roomsAfterMerge.any((r) => r.roomId == 'para:projects:demo_project_b'), isFalse);
 
     // Re-importing same message should deduplicate cleanly and not duplicate rows
     await db.mergeRemoteSyncPayload({
@@ -273,5 +274,24 @@ void main() {
     });
     final syncedMsgs = await db.getMessages('para:projects:Fold6_新案場');
     expect(syncedMsgs.length, 1);
+  });
+
+  test('TokenEstimator and stale calendar year guard work accurately', () async {
+    expect(TokenEstimator.estimateTextTokens('測試十個中文字長度呀'), 18);
+    expect(TokenEstimator.formatCompact(1240), '1.2k');
+    expect(TokenEstimator.formatCompact(780), '780');
+
+    final calOutcome = await registry.executeTool(
+      toolName: 'create_calendar_event',
+      args: {
+        'title': '測試今天排程',
+        'start_iso': '2025-07-17T14:00:00',
+        'description': '今天下午測試',
+      },
+      roomId: 'main',
+    );
+    final now = DateTime.now();
+    expect(calOutcome.card, isNotNull);
+    expect(calOutcome.card!.rows.first, contains('${now.year}/${now.month}/${now.day} 14:00'));
   });
 }
