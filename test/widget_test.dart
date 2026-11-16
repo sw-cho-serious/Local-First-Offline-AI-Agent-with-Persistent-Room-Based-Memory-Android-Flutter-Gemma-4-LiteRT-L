@@ -300,5 +300,13 @@ void main() {
 
     final fiveMin = ToolRegistry.parseLooseDateTime('五分鐘後喝水');
     expect(fiveMin.difference(now).inMinutes, inInclusiveRange(4, 5));
+
+    final noAfter = ToolRegistry.parseLooseDateTime('測試 2分鐘');
+    expect(noAfter.difference(now).inSeconds, inInclusiveRange(115, 125));
+
+    final matched = ToolRegistry.matchLeadingAtTool('@排日曆 測試 今天');
+    expect(matched, isNotNull);
+    expect(matched!.option.toolName, 'create_calendar_event');
+    expect(matched.cleanText, '測試 今天');
   });
 }

@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _taskDrawerExpanded = false;
   bool _atMenuVisible = false;
   bool _isGenerating = false;
+  bool _sendingLock = false;
   String _streamingText = '';
   String? _streamingPill;
   ActionCardData? _streamingCard;
@@ -58,6 +59,8 @@ class _HomeScreenState extends State<HomeScreen> {
   CompressedImageResult? _pendingImage;
 
   Timer? _idleTimer;
+  Timer? _topToastTimer;
+  String? _topToastMsg;
   StreamSubscription<EngineStreamEvent>? _streamSub;
   int _lastSeenSyncAtMs = 0;
 
@@ -90,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     widget.syncService.removeListener(_onSyncServiceChanged);
     _idleTimer?.cancel();
+    _topToastTimer?.cancel();
     _streamSub?.cancel();
     _inputController.dispose();
     _scrollController.dispose();
@@ -368,123 +372,129 @@ class _HomeScreenState extends State<HomeScreen> {
       await widget.engine.stopGeneration();
       return;
     }
+    if (_sendingLock) return;
 
     var text = _inputController.text.trim();
     final image = _pendingImage;
     final usedTool = _mountedTool;
     if (text.isEmpty && image == null) return;
-    if (text.isEmpty && image != null) {
-      text = '辨識這張現場照片中的料號、尺寸、數量或異常重點';
-    }
-
-    _inputController.clear();
-    _idleTimer?.cancel();
-
-    final displayText = usedTool != null ? '${usedTool.atLabel} $text' : text;
-
-    // Persist user message immediately
-    await widget.db.insertMessage(
-      roomId: _currentRoomId,
-      role: 'user',
-      content: displayText,
-      imagePath: image?.savedPath,
-    );
-    widget.syncService.scheduleDebouncedPush();
-
-    final roomIdForTurn = _currentRoomId;
-    final Uint8List? imgBytes = image?.bytes;
-
-    setState(() {
-      _pendingImage = null;
-      _atMenuVisible = false;
-      if (!_isToolPinned) {
-        _mountedTool = null;
-      }
-      _isGenerating = true;
-      _streamingText = '';
-      _streamingPill = null;
-      _streamingCard = null;
-      _liveSpiritState = SpiritState.thinking;
-    });
-    await _loadRoomContent(roomIdForTurn);
-
-    final replyBuf = StringBuffer();
-    String? capturedPill;
-    ActionCardData? capturedCard;
-    String? suggestedRoomName;
-    var finalState = SpiritState.idle;
-
+    _sendingLock = true;
     try {
-      await for (final event in widget.engine.sendMessageStream(
-        roomId: roomIdForTurn,
-        userText: text,
-        compressedImageBytes: imgBytes,
-        mountedTool: usedTool,
-      )) {
-        if (!mounted) break;
-        switch (event) {
-          case EngineTextChunk(:final token):
-            replyBuf.write(token);
-            setState(() {
-              _streamingText = replyBuf.toString();
-            });
-            _scrollToBottom();
-          case EngineToolExecuted(:final toolPill, :final card):
-            if (toolPill != null) capturedPill = toolPill;
-            if (card != null) capturedCard = card;
-            setState(() {
-              _streamingPill = capturedPill;
-              _streamingCard = capturedCard;
-            });
-          case EngineStateHint(:final state):
-            finalState = state;
-            setState(() {
-              _liveSpiritState = state;
-            });
-          case EngineSuggestedRoom(:final suggestedName):
-            suggestedRoomName = suggestedName;
-        }
+      if (text.isEmpty && image != null) {
+        text = '辨識這張現場照片中的料號、尺寸、數量或異常重點';
       }
-    } catch (e) {
-      replyBuf.write('\n[錯誤：$e]');
-      finalState = SpiritState.stuck;
-    }
 
-    final finalReply = replyBuf.toString().trim().isEmpty
-        ? '（無輸出內容）'
-        : replyBuf.toString().trim();
+      _inputController.clear();
+      _idleTimer?.cancel();
 
-    if (suggestedRoomName != null && capturedCard == null) {
-      capturedCard = ActionCardData(
-        type: 'create_room',
-        badge: '🏗️ 建議開設新工作房間',
-        title: suggestedRoomName,
-        rows: ['確認建立後將自動為「$suggestedRoomName」配置獨立上下文與專屬小精靈。'],
-        buttonLabel: '➕ 建立「$suggestedRoomName」工作房間',
-        payload: {'roomName': suggestedRoomName},
+      final displayText = usedTool != null ? '${usedTool.atLabel} $text' : text;
+
+      // Persist user message immediately
+      await widget.db.insertMessage(
+        roomId: _currentRoomId,
+        role: 'user',
+        content: displayText,
+        imagePath: image?.savedPath,
       );
+      widget.syncService.scheduleDebouncedPush();
+
+      final roomIdForTurn = _currentRoomId;
+      final Uint8List? imgBytes = image?.bytes;
+
+      setState(() {
+        _pendingImage = null;
+        _atMenuVisible = false;
+        if (!_isToolPinned) {
+          _mountedTool = null;
+        }
+        _isGenerating = true;
+        _streamingText = '';
+        _streamingPill = null;
+        _streamingCard = null;
+        _liveSpiritState = SpiritState.thinking;
+      });
+      await _loadRoomContent(roomIdForTurn);
+
+      final replyBuf = StringBuffer();
+      String? capturedPill;
+      ActionCardData? capturedCard;
+      String? suggestedRoomName;
+      var finalState = SpiritState.idle;
+
+      try {
+        await for (final event in widget.engine.sendMessageStream(
+          roomId: roomIdForTurn,
+          userText: text,
+          compressedImageBytes: imgBytes,
+          mountedTool: usedTool,
+        )) {
+          if (!mounted) break;
+          switch (event) {
+            case EngineTextChunk(:final token):
+              replyBuf.write(token);
+              setState(() {
+                _streamingText = replyBuf.toString();
+              });
+              _scrollToBottom();
+            case EngineToolExecuted(:final toolPill, :final card):
+              if (toolPill != null) capturedPill = toolPill;
+              if (card != null) capturedCard = card;
+              setState(() {
+                _streamingPill = capturedPill;
+                _streamingCard = capturedCard;
+              });
+            case EngineStateHint(:final state):
+              finalState = state;
+              setState(() {
+                _liveSpiritState = state;
+              });
+            case EngineSuggestedRoom(:final suggestedName):
+              suggestedRoomName = suggestedName;
+          }
+        }
+      } catch (e) {
+        replyBuf.write('\n[錯誤：$e]');
+        finalState = SpiritState.stuck;
+      }
+
+      final finalReply = replyBuf.toString().trim().isEmpty
+          ? '（無輸出內容）'
+          : replyBuf.toString().trim();
+
+      if (suggestedRoomName != null && capturedCard == null) {
+        capturedCard = ActionCardData(
+          type: 'create_room',
+          badge: '🏗️ 建議開設新工作房間',
+          title: suggestedRoomName,
+          rows: ['確認建立後將自動為「$suggestedRoomName」配置獨立上下文與專屬小精靈。'],
+          buttonLabel: '➕ 建立「$suggestedRoomName」工作房間',
+          payload: {'roomName': suggestedRoomName},
+        );
+      }
+
+      await widget.db.insertMessage(
+        roomId: roomIdForTurn,
+        role: 'model',
+        content: finalReply,
+        toolPill: capturedPill,
+        cardJson: capturedCard?.toJsonString(),
+      );
+      await widget.db.updateRoomAvatarState(roomIdForTurn, finalState);
+      widget.syncService.scheduleDebouncedPush();
+
+      if (!mounted) return;
+      setState(() {
+        _isGenerating = false;
+        _streamingText = '';
+        _streamingPill = null;
+        _streamingCard = null;
+        _liveSpiritState = finalState;
+      });
+      await _loadRoomContent(roomIdForTurn);
+      _resetIdleTimer();
+    } finally {
+      _sendingLock = false;
     }
-
-    await widget.db.insertMessage(
-      roomId: roomIdForTurn,
-      role: 'model',
-      content: finalReply,
-      toolPill: capturedPill,
-      cardJson: capturedCard?.toJsonString(),
-    );
-    await widget.db.updateRoomAvatarState(roomIdForTurn, finalState);
-    widget.syncService.scheduleDebouncedPush();
-
-    if (!mounted) return;
-    setState(() {
-      _isGenerating = false;
-      _streamingText = '';
-      _streamingPill = null;
-      _streamingCard = null;
-      _liveSpiritState = finalState;
-    });
-    await _loadRoomContent(roomIdForTurn);
-    _resetIdleTimer();
   }
 
   Future<void> _insertNewTopicDivider() async {
@@ -661,16 +671,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showToast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message, style: const TextStyle(fontSize: 12.5)),
-          backgroundColor: const Color(0xFF1F2937),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    _topToastTimer?.cancel();
+    setState(() => _topToastMsg = message);
+    _topToastTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) {
+        setState(() => _topToastMsg = null);
+      }
+    });
   }
 
   void _openFullImage(String path) {
@@ -725,30 +732,69 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _buildSidebarPanel(closeDrawerOnTap: true),
           ),
           body: SafeArea(
-            child: Row(
+            child: Stack(
               children: [
-                if (isWideFold)
-                  Container(
-                    width: 268,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF15181E),
-                      border: Border(
-                        right: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                Row(
+                  children: [
+                    if (isWideFold)
+                      Container(
+                        width: 268,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF15181E),
+                          border: Border(
+                            right: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                          ),
+                        ),
+                        child: _buildSidebarPanel(closeDrawerOnTap: false),
+                      ),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          _buildTopBar(room, showMenuBtn: !isWideFold),
+                          if (_currentTodos.isNotEmpty) _buildTaskSummaryStrip(),
+                          Expanded(child: _buildChatFeed(room)),
+                          if (_atMenuVisible) _buildAtPopover(),
+                          _buildInputBar(),
+                        ],
                       ),
                     ),
-                    child: _buildSidebarPanel(closeDrawerOnTap: false),
-                  ),
-                Expanded(
-                  child: Column(
-                    children: [
-                      _buildTopBar(room, showMenuBtn: !isWideFold),
-                      if (_currentTodos.isNotEmpty) _buildTaskSummaryStrip(),
-                      Expanded(child: _buildChatFeed(room)),
-                      if (_atMenuVisible) _buildAtPopover(),
-                      _buildInputBar(),
-                    ],
-                  ),
+                  ],
                 ),
+                if (_topToastMsg != null)
+                  Positioned(
+                    top: 10,
+                    left: 14,
+                    right: 14,
+                    child: Center(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _topToastMsg = null),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3F4F6),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFF59E0B), width: 1.5),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black54,
+                                blurRadius: 10,
+                                offset: Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            _topToastMsg!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111317),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -994,17 +1040,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         meterColor = const Color(0xFF9CA3AF);
                       }
                       final compact = TokenEstimator.formatCompact(_contextTokens);
+                      final shortEngine = widget.engine.activeBackendLabel
+                          .replaceFirst('Gemma-4-', '')
+                          .replaceAll(' ', '');
                       return Text.rich(
                         TextSpan(
                           children: [
                             TextSpan(
-                              text: '${widget.engine.activeBackendLabel} • ',
-                              style: const TextStyle(fontSize: 11.5, color: Color(0xFF9CA3AF)),
+                              text: '$shortEngine • ',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
                             ),
                             TextSpan(
-                              text: '$compact / 3.0k${ratio > 0.85 ? ' ✂️' : ''}',
+                              text: '$compact/3.0k${ratio > 0.85 ? ' ✂️' : ''}',
                               style: TextStyle(
-                                fontSize: 11.5,
+                                fontSize: 11,
                                 color: meterColor,
                                 fontWeight: ratio >= 0.70 ? FontWeight.w600 : FontWeight.normal,
                               ),

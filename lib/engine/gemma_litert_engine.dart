@@ -409,20 +409,28 @@ class GemmaLiteRtEngine implements LlmEngine {
       } catch (_) {}
     }
 
-    // 2. Fallback deterministic path when 3.7GB model is not loaded yet.
+    // 2. Deterministic @ tool path: whenever user mounted or typed a leading @ tool
+    // (without attaching an image for Vision OCR), execute immediately in Dart with zero LLM latency.
+    final leadingMatch =
+        mountedTool == null ? ToolRegistry.matchLeadingAtTool(userText) : null;
+    final effectiveTool = mountedTool ?? leadingMatch?.option;
+    final effectiveUserText = leadingMatch?.cleanText ?? userText;
+    if (effectiveTool != null && compressedImageBytes == null) {
+      yield const EngineStateHint(SpiritState.working);
+      final outcome = await toolRegistry.executeFallbackFromAtOption(
+        option: effectiveTool,
+        userText: effectiveUserText,
+        roomId: roomId,
+      );
+      yield EngineToolExecuted(toolPill: outcome.toolPill, card: outcome.card);
+      yield EngineTextChunk(outcome.directReply ?? '處理好了。');
+      yield const EngineStateHint(SpiritState.idle);
+      return;
+    }
+
+    // 3. Fallback when 3.7GB model is not loaded yet (images / free chat).
     if (_model == null) {
       yield const EngineStateHint(SpiritState.working);
-      if (mountedTool != null) {
-        final outcome = await toolRegistry.executeFallbackFromAtOption(
-          option: mountedTool,
-          userText: userText,
-          roomId: roomId,
-        );
-        yield EngineToolExecuted(toolPill: outcome.toolPill, card: outcome.card);
-        yield EngineTextChunk(outcome.directReply ?? '處理好了。');
-        yield const EngineStateHint(SpiritState.idle);
-        return;
-      }
 
       if (compressedImageBytes != null) {
         yield const EngineStateHint(SpiritState.stuck);

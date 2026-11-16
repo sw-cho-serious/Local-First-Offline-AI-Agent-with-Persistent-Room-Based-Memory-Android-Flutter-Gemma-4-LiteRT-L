@@ -118,6 +118,7 @@ class NativeActions {
         : triggerTime;
 
     if (Platform.isAndroid && !kIsWeb) {
+      await Permission.notification.request();
       final androidPlugin = _notifications
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
@@ -146,29 +147,34 @@ class NativeActions {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       );
     } catch (e) {
-      debugPrint('[NativeActions] exactAllowWhileIdle failed ($e), falling back to inexact + timer');
-      final tzDate = tz.TZDateTime.from(safeTime, tz.local);
-      await _notifications.zonedSchedule(
-        id: id,
-        title: title,
-        body: body,
-        scheduledDate: tzDate,
-        notificationDetails: details,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      );
-      // Inexact alarms on Android 14+ may be batched/delayed by minutes;
-      // fire an immediate in-process timer fallback for short reminders while app is alive.
-      final delay = safeTime.difference(DateTime.now());
-      if (delay > Duration.zero && delay <= const Duration(minutes: 30)) {
-        Timer(delay, () {
-          unawaited(_notifications.show(
-            id: id,
-            title: title,
-            body: body,
-            notificationDetails: details,
-          ));
-        });
+      debugPrint('[NativeActions] exactAllowWhileIdle failed ($e), falling back to inexact');
+      try {
+        final tzDate = tz.TZDateTime.from(safeTime, tz.local);
+        await _notifications.zonedSchedule(
+          id: id,
+          title: title,
+          body: body,
+          scheduledDate: tzDate,
+          notificationDetails: details,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        );
+      } catch (e2) {
+        debugPrint('[NativeActions] inexact zonedSchedule failed ($e2)');
       }
+    }
+
+    // Unconditional in-process Timer fallback for reminders <= 2 hours so
+    // Samsung/Sony Doze delays never miss short-term notifications.
+    final delay = safeTime.difference(DateTime.now());
+    if (delay > Duration.zero && delay <= const Duration(hours: 2)) {
+      Timer(delay, () {
+        unawaited(_notifications.show(
+          id: id,
+          title: title,
+          body: body,
+          notificationDetails: details,
+        ));
+      });
     }
 
     final h = safeTime.hour.toString().padLeft(2, '0');

@@ -37,12 +37,15 @@ class MainActivity : FlutterActivity() {
         return try {
             val projection = arrayOf(
                 CalendarContract.Calendars._ID,
-                CalendarContract.Calendars.CALENDAR_DISPLAY_NAME
+                CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+                CalendarContract.Calendars.ACCOUNT_NAME,
+                CalendarContract.Calendars.ACCOUNT_TYPE
             )
             val selection =
                 "${CalendarContract.Calendars.VISIBLE} = 1 AND " +
                 "${CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL} >= ${CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR}"
             val sortOrder =
+                "CASE WHEN ${CalendarContract.Calendars.ACCOUNT_TYPE} = 'com.google' THEN 0 ELSE 1 END ASC, " +
                 "${CalendarContract.Calendars.IS_PRIMARY} DESC, ${CalendarContract.Calendars._ID} ASC"
 
             var calendarId: Long? = null
@@ -57,7 +60,9 @@ class MainActivity : FlutterActivity() {
             )?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     calendarId = cursor.getLong(0)
-                    calendarName = cursor.getString(1) ?: "系統日曆"
+                    val disp = cursor.getString(1) ?: "系統日曆"
+                    val acct = cursor.getString(2) ?: ""
+                    calendarName = if (acct.isNotEmpty() && acct != disp) "$disp ($acct)" else disp
                 }
             }
 

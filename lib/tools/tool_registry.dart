@@ -59,16 +59,44 @@ class ToolRegistry {
     AtToolOption(
       atLabel: '@設鬧鐘',
       toolName: 'schedule_notification',
-      subtitle: '本機通知提醒',
+      subtitle: '系統通知準時提醒',
       colorHex: '#A855F7',
     ),
     AtToolOption(
       atLabel: '@排日曆',
       toolName: 'create_calendar_event',
-      subtitle: 'Android 日曆草稿卡',
+      subtitle: '直寫 Google / 系統日曆',
       colorHex: '#FB7185',
     ),
   ];
+
+  /// Matches manual or mounted leading @ tool commands so execution is 100% deterministic.
+  static ({AtToolOption option, String cleanText})? matchLeadingAtTool(String rawText) {
+    final trimmed = rawText.trimLeft();
+    if (!trimmed.startsWith('@')) return null;
+
+    const aliases = <String, int>{
+      '@查鋁料': 0,
+      '@查調機': 1,
+      '@記待辦': 2,
+      '@寫待辦': 2,
+      '@設鬧鐘': 3,
+      '@設提醒': 3,
+      '@排日曆': 4,
+    };
+
+    for (final entry in aliases.entries) {
+      final tag = entry.key;
+      if (trimmed.startsWith(tag)) {
+        final afterTag = trimmed.substring(tag.length);
+        if (afterTag.isEmpty || RegExp(r'^[\s:：,，]').hasMatch(afterTag)) {
+          final clean = afterTag.replaceFirst(RegExp(r'^[\s:：,，]+'), '').trim();
+          return (option: atOptions[entry.value], cleanText: clean);
+        }
+      }
+    }
+    return null;
+  }
 
   static Tool buildSchema(String toolName) {
     switch (toolName) {
@@ -180,24 +208,32 @@ class ToolRegistry {
       case 'lookup_profile':
         final match = RegExp(r'([A-Za-z0-9\-\(\)/]+)').firstMatch(clean);
         final code = match?.group(1) ?? clean;
-        return _runLookupProfile({'code': code});
+        final lenMatch = RegExp(r'(\d+(?:\.\d+)?)\s*(?:mm|MM|毫米)').firstMatch(clean);
+        final qtyMatch = RegExp(r'(\d+)\s*[支隻片條]').firstMatch(clean);
+        return _runLookupProfile({
+          'code': code,
+          if (lenMatch != null) 'length_mm': double.tryParse(lenMatch.group(1)!),
+          if (qtyMatch != null) 'qty': int.tryParse(qtyMatch.group(1)!),
+        });
       case 'lookup_machine_tuning':
         return _runLookupTuning({'query': clean});
       case 'data_write':
         return _runDataWrite({'item_text': clean, 'status': 'pending'}, roomId);
       case 'schedule_notification':
         final dt = parseLooseDateTime(clean);
+        final title = _extractCleanEventTitle(clean, 'KODARI 現場提醒');
         return _runScheduleNotification({
-          'title': clean.isEmpty ? 'KODARI 現場提醒' : clean,
-          'body': clean,
+          'title': title,
+          'body': clean.isEmpty ? title : clean,
           'trigger_iso': dt.toIso8601String(),
         });
       case 'create_calendar_event':
         final dt = parseLooseDateTime(clean);
+        final title = _extractCleanEventTitle(clean, '工作排程事件');
         return _runCreateCalendar({
-          'title': clean.isEmpty ? '工作排程事件' : clean,
+          'title': title,
           'start_iso': dt.toIso8601String(),
-          'description': clean,
+          'description': clean.isEmpty ? '由《HAKO • KODARI》建立' : clean,
         });
       default:
         return const ToolExecutionOutcome(toolResponse: {'status': 'noop'});
@@ -458,26 +494,27 @@ class ToolRegistry {
     return parsed;
   }
 
-  /// Parses simple Chinese time hints ("1分鐘後", "明天 8點", "08:30", "後天早上") for offline fallback.
+  /// Parses simple Chinese time hints ("1分鐘後", "測試 2分鐘", "明天 8點", "08:30") cleanly.
   static DateTime parseLooseDateTime(String text) {
     final now = DateTime.now();
 
-    // 1. Relative time hints ("1分鐘後", "五分鐘後", "2小時後", "半小時後", "30秒後")
-    if (text.contains('半小時後') || text.contains('半小時內')) {
+    // 1. Relative time hints ("1分鐘後", "五分鐘之後", "測試 2分鐘", "2小時後", "半小時後", "30秒後")
+    if (text.contains('半小時')) {
       return now.add(const Duration(minutes: 30));
     }
-    final secMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*秒(?:鐘)?\s*(?:後|以後|之內)').firstMatch(text);
-    if (secMatch != null) {
+    final hasClockTime = RegExp(r'(\d{1,2})\s*[點時:]').hasMatch(text);
+    final secMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*秒(?:鐘)?(?:\s*(?:之後|以後|之內|後))?').firstMatch(text);
+    if (secMatch != null && !hasClockTime) {
       final secs = _parseZhOrInt(secMatch.group(1)!);
       if (secs > 0) return now.add(Duration(seconds: secs));
     }
-    final minMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*分(?:鐘)?\s*(?:後|以後|之內)').firstMatch(text);
-    if (minMatch != null) {
+    final minMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*分(?:鐘)?(?:\s*(?:之後|以後|之內|後))?').firstMatch(text);
+    if (minMatch != null && !hasClockTime) {
       final mins = _parseZhOrInt(minMatch.group(1)!);
       if (mins > 0) return now.add(Duration(minutes: mins));
     }
-    final hourMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*(?:小)?時\s*(?:後|以後|之內)').firstMatch(text);
-    if (hourMatch != null) {
+    final hourMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*小?時(?:\s*(?:之後|以後|之內|後))?').firstMatch(text);
+    if (hourMatch != null && !hasClockTime) {
       final hrs = _parseZhOrInt(hourMatch.group(1)!);
       if (hrs > 0) return now.add(Duration(hours: hrs));
     }
@@ -527,5 +564,20 @@ class ToolRegistry {
       '十': 10,
     };
     return map[raw] ?? 0;
+  }
+
+  static String _extractCleanEventTitle(String raw, String defaultTitle) {
+    var s = raw
+        .replaceAll(RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*分(?:鐘)?(?:\s*(?:之後|以後|之內|後))?'), '')
+        .replaceAll(RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*秒(?:鐘)?(?:\s*(?:之後|以後|之內|後))?'), '')
+        .replaceAll(RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*小?時(?:\s*(?:之後|以後|之內|後))?'), '')
+        .replaceAll(RegExp(r'半小時(?:之後|以後|後)?'), '')
+        .replaceAll(RegExp(r'\d{1,2}:\d{2}'), '')
+        .replaceAll(RegExp(r'\d{1,2}\s*[點時](?:\s*\d{1,2}\s*分?)?'), '')
+        .replaceAll(RegExp(r'今天|今日|明天|明日|後天|早上|上午|中午|下午|晚上|提醒我|叫我'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (s.isEmpty) s = raw.trim();
+    return s.isEmpty ? defaultTitle : s;
   }
 }
