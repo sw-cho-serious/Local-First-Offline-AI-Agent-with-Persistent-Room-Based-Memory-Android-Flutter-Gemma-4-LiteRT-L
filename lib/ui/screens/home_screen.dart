@@ -11,6 +11,7 @@ import '../../data/database_helper.dart';
 import '../../data/models.dart';
 import '../../engine/llm_engine.dart';
 import '../../sync/cloud_sync_service.dart';
+import '../../tools/native_actions.dart';
 import '../../tools/tool_registry.dart';
 import '../widgets/action_card_widget.dart';
 import '../widgets/modals.dart';
@@ -49,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _atMenuVisible = false;
   bool _isGenerating = false;
   bool _sendingLock = false;
+  bool _isListeningVoice = false;
   String _streamingText = '';
   String? _streamingPill;
   ActionCardData? _streamingCard;
@@ -365,6 +367,28 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Future<void> _startVoiceInput() async {
+    if (_isGenerating || _isListeningVoice) return;
+    _prewarmOnInteraction();
+    setState(() => _isListeningVoice = true);
+    try {
+      final spoken = await NativeActions.listenSpeech();
+      if (!mounted) return;
+      if (spoken == null || spoken.trim().isEmpty) {
+        _showToast('🎙️ 沒有收到語音內容');
+        return;
+      }
+      final normalized = ToolRegistry.normalizeSpokenCommand(spoken);
+      _inputController.text = normalized;
+      _inputController.selection = TextSelection.fromPosition(
+        TextPosition(offset: normalized.length),
+      );
+      await _sendMessage();
+    } finally {
+      if (mounted) setState(() => _isListeningVoice = false);
+    }
   }
 
   Future<void> _sendMessage() async {
@@ -1597,6 +1621,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ActionCardWidget(
                                   card: card,
                                   onToast: _showToast,
+                                  onJumpToRoom: _switchRoom,
                                   onCreateRoom: (name) async {
                                     final created = await showCreateRoomDialog(
                                       context: context,
@@ -1669,7 +1694,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 4),
-          for (final opt in ToolRegistry.atOptions)
+          for (final opt in ToolRegistry.optionsForRoom(_currentRoomId))
             InkWell(
               borderRadius: BorderRadius.circular(10),
               onTap: () => _selectAtTool(opt, pin: false),
@@ -1866,6 +1891,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(width: 6),
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  tooltip: '語音對 KODARI 說話',
+                  style: IconButton.styleFrom(
+                    backgroundColor: _isListeningVoice
+                        ? const Color(0xFF10B981).withValues(alpha: 0.28)
+                        : Colors.white.withValues(alpha: 0.06),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+                  ),
+                  icon: Icon(
+                    _isListeningVoice ? Icons.graphic_eq : Icons.mic_none_rounded,
+                    color: _isListeningVoice ? const Color(0xFF34D399) : const Color(0xFF38BDF8),
+                    size: 20,
+                  ),
+                  onPressed: _isGenerating ? null : _startVoiceInput,
+                ),
+              ),
+              const SizedBox(width: 6),
               Expanded(
                 child: TextField(
                   controller: _inputController,
@@ -1881,6 +1927,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onSubmitted: (_) => _sendMessage(),
                   decoration: InputDecoration(
                     hintText: '說點什麼，或按 @ 掛工具…',
+                    hintMaxLines: 1,
                     hintStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
                     filled: true,
                     fillColor: const Color(0xFF0E1014),

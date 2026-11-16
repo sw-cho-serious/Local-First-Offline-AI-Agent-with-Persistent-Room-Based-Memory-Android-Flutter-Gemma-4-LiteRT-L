@@ -313,4 +313,29 @@ void main() {
     expect(mil.hour, 18);
     expect(mil.minute, 0);
   });
+
+  test('Main-only search_memory, global search, and voice normalization work accurately', () async {
+    final mainOpts = ToolRegistry.optionsForRoom('main');
+    final subOpts = ToolRegistry.optionsForRoom('para:projects:demo_project_a');
+    expect(mainOpts.any((o) => o.toolName == 'search_memory'), isTrue);
+    expect(subOpts.any((o) => o.toolName == 'search_memory'), isFalse);
+
+    await db.insertMessage(
+      roomId: 'para:projects:demo_project_a',
+      role: 'user',
+      content: '示範專案 A 需要補切 588mm 五支',
+    );
+    final hits = await db.searchGlobalMemory('588mm');
+    expect(hits, isNotEmpty);
+    expect(hits.first.roomId, 'para:projects:demo_project_a');
+
+    expect(
+      ToolRegistry.normalizeSpokenCommand('可達 設鬧鐘 5分鐘後喝水'),
+      '@設鬧鐘 5分鐘後喝水',
+    );
+    expect(
+      ToolRegistry.normalizeSpokenCommand('嘿可達，搜記憶 588mm'),
+      '@搜記憶 588mm',
+    );
+  });
 }

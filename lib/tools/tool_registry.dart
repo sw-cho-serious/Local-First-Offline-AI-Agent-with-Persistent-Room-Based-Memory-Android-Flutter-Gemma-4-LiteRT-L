@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 import '../data/database_helper.dart';
@@ -10,12 +11,14 @@ class AtToolOption {
     required this.toolName,
     required this.subtitle,
     required this.colorHex,
+    this.mainOnly = false,
   });
 
   final String atLabel;
   final String toolName;
   final String subtitle;
   final String colorHex;
+  final bool mainOnly;
 }
 
 class ToolExecutionOutcome {
@@ -68,7 +71,61 @@ class ToolRegistry {
       subtitle: '直寫 Google / 系統日曆',
       colorHex: '#FB7185',
     ),
+    AtToolOption(
+      atLabel: '@搜記憶',
+      toolName: 'search_memory',
+      subtitle: '主房專屬 • 跨房搜待辦／對話',
+      colorHex: '#34D399',
+      mainOnly: true,
+    ),
+    AtToolOption(
+      atLabel: '@剪貼簿',
+      toolName: 'clipboard_tool',
+      subtitle: '剪貼簿匯入待辦／匯出本房',
+      colorHex: '#60A5FA',
+    ),
   ];
+
+  static List<AtToolOption> optionsForRoom(String roomId) {
+    return atOptions.where((o) => !o.mainOnly || roomId == 'main').toList();
+  }
+
+  /// Normalizes voice transcriptions (strips wake word & maps spoken commands to @ tools).
+  static String normalizeSpokenCommand(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return s;
+    s = s.replaceFirst(
+      RegExp(r'^(?:可達|KODARI|kodari|嘿可達|哈囉可達|可達呀|可達啊)[\s,，:：、]+'),
+      '',
+    ).trim();
+
+    const voiceMap = <String, String>{
+      '設定鬧鐘': '@設鬧鐘',
+      '設鬧鐘': '@設鬧鐘',
+      '設提醒': '@設鬧鐘',
+      '提醒我': '@設鬧鐘',
+      '排日曆': '@排日曆',
+      '加日曆': '@排日曆',
+      '新增日曆': '@排日曆',
+      '搜記憶': '@搜記憶',
+      '找記憶': '@搜記憶',
+      '搜尋記憶': '@搜記憶',
+      '查記憶': '@搜記憶',
+      '查鋁料': '@查鋁料',
+      '查調機': '@查調機',
+      '記待辦': '@記待辦',
+      '寫待辦': '@記待辦',
+      '新增待辦': '@記待辦',
+      '剪貼簿': '@剪貼簿',
+    };
+    for (final e in voiceMap.entries) {
+      if (s.startsWith(e.key)) {
+        final rest = s.substring(e.key.length).replaceFirst(RegExp(r'^[\s,，:：]+'), '');
+        return rest.isEmpty ? e.value : '${e.value} $rest';
+      }
+    }
+    return s;
+  }
 
   /// Matches manual or mounted leading @ tool commands so execution is 100% deterministic.
   static ({AtToolOption option, String cleanText})? matchLeadingAtTool(String rawText) {
@@ -83,6 +140,9 @@ class ToolRegistry {
       '@設鬧鐘': 3,
       '@設提醒': 3,
       '@排日曆': 4,
+      '@搜記憶': 5,
+      '@查記憶': 5,
+      '@剪貼簿': 6,
     };
 
     for (final entry in aliases.entries) {
@@ -167,6 +227,29 @@ class ToolRegistry {
             'required': ['title', 'start_iso'],
           },
         );
+      case 'search_memory':
+        return const Tool(
+          name: 'search_memory',
+          description: '跨全部工作房間搜尋待辦清單與歷史對話紀錄。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '搜尋關鍵字，例如 343mm 或 案場名稱'},
+            },
+            'required': ['query'],
+          },
+        );
+      case 'clipboard_tool':
+        return const Tool(
+          name: 'clipboard_tool',
+          description: '讀取手機剪貼簿匯入待辦，或將本房待辦清單匯出複製。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'mode': {'type': 'string', 'description': 'import 或 export'},
+            },
+          },
+        );
       default:
         throw ArgumentError('Unknown tool: $toolName');
     }
@@ -188,6 +271,10 @@ class ToolRegistry {
         return _runScheduleNotification(args);
       case 'create_calendar_event':
         return _runCreateCalendar(args);
+      case 'search_memory':
+        return _runSearchMemory(args);
+      case 'clipboard_tool':
+        return _runClipboardTool(args, roomId);
       default:
         return ToolExecutionOutcome(
           toolResponse: {'error': '未知工具: $toolName'},
@@ -235,6 +322,10 @@ class ToolRegistry {
           'start_iso': dt.toIso8601String(),
           'description': clean.isEmpty ? '由《HAKO • KODARI》建立' : clean,
         });
+      case 'search_memory':
+        return _runSearchMemory({'query': clean});
+      case 'clipboard_tool':
+        return _runClipboardTool({'query': clean}, roomId);
       default:
         return const ToolExecutionOutcome(toolResponse: {'status': 'noop'});
     }
@@ -382,23 +473,160 @@ class ToolRegistry {
       triggerTime: triggerTime,
     );
 
+    final combined = '$title $body';
+    final alsoRealAlarm = combined.contains('真鬧鐘') || combined.contains('系統鬧鐘');
+    if (alsoRealAlarm) {
+      await NativeActions.setSystemAlarmClock(
+        hour: triggerTime.hour,
+        minute: triggerTime.minute,
+        message: title,
+        skipUi: true,
+      );
+    }
+
     final card = ActionCardData(
       type: 'notification',
-      badge: '⏰ 本地提醒已排程',
+      badge: alsoRealAlarm ? '⏰ 通知 ＋ 系統真鬧鐘已排程' : '⏰ 本地提醒已排程',
       title: title,
       rows: [
         '提醒時間：${res.displayTime}',
         if (body != title) '備註：$body',
       ],
-      buttonLabel: '⏰ 系統通知已設定',
-      payload: {'time': res.displayTime},
+      buttonLabel: '⏰ 寫入系統「時鐘」真鬧鐘',
+      payload: {
+        'time': res.displayTime,
+        'hour': triggerTime.hour,
+        'minute': triggerTime.minute,
+        'title': title,
+      },
     );
 
     return ToolExecutionOutcome(
       toolResponse: {'scheduled': res.scheduled, 'time': res.displayTime},
-      toolPill: '⏰ 已設定提醒：${res.displayTime}',
+      toolPill: alsoRealAlarm
+          ? '⏰ 已設通知 ＋ 真鬧鐘：${res.displayTime}'
+          : '⏰ 已設定提醒：${res.displayTime}',
       card: card,
-      directReply: '好，${res.displayTime} 的提醒幫你釘好了。',
+      directReply: alsoRealAlarm
+          ? '好，${res.displayTime} 的系統通知跟「時鐘」真鬧鐘都幫你設定好了。'
+          : '好，${res.displayTime} 的提醒幫你釘好了（需要響到按掉可點卡片寫進系統鬧鐘）。',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runSearchMemory(Map<String, dynamic> args) async {
+    final query = (args['query'] ?? '').toString().trim();
+    final hits = await _db.searchGlobalMemory(query);
+    if (hits.isEmpty) {
+      return ToolExecutionOutcome(
+        toolResponse: {'found': 0, 'query': query},
+        toolPill: '🧠 search_memory：跨房查無「$query」',
+        directReply: '翻過所有工作房間的待辦和對話紀錄，沒找到「$query」相關內容。',
+      );
+    }
+
+    final rows = <String>[
+      for (final h in hits.take(5))
+        '[${h.roomTitle} · ${h.source}] ${h.snippet.length > 55 ? '${h.snippet.substring(0, 55)}...' : h.snippet}',
+    ];
+    final jumpTarget = hits.firstWhere(
+      (h) => h.roomId != 'main',
+      orElse: () => hits.first,
+    );
+    final canJump = jumpTarget.roomId != 'main';
+
+    final card = ActionCardData(
+      type: 'memory_hit',
+      badge: '🧠 跨房間記憶搜尋（共 ${hits.length} 筆）',
+      title: query.isEmpty ? '各房間待辦記憶總覽' : '關鍵字：$query',
+      rows: rows,
+      buttonLabel: canJump ? '🚪 跳轉至「${jumpTarget.roomTitle}」' : '📋 複製搜尋結果',
+      payload: {
+        'targetRoomId': jumpTarget.roomId,
+        'roomTitle': jumpTarget.roomTitle,
+        'copyText': rows.join('\n'),
+      },
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {'found': hits.length, 'top_room': jumpTarget.roomTitle},
+      toolPill: '🧠 search_memory：找到 ${hits.length} 筆記憶',
+      card: card,
+      directReply: '跨房間幫你翻到 ${hits.length} 筆相關紀錄，最新一筆在「${hits.first.roomTitle}」：',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runClipboardTool(
+    Map<String, dynamic> args,
+    String roomId,
+  ) async {
+    final query = (args['query'] ?? args['mode'] ?? '').toString().trim();
+    final isExport = query.contains('匯出') ||
+        query.contains('複製') ||
+        query.contains('分享') ||
+        query.toLowerCase() == 'export';
+
+    if (isExport) {
+      final room = await _db.getRoom(roomId);
+      final todos = await _db.getRoomTodos(roomId);
+      final lines = todos.isEmpty
+          ? '（目前尚無待辦項目）'
+          : todos.map((t) => '${t.done ? '[x]' : '[ ]'} ${t.text}').join('\n');
+      final exportText = '【${room?.title ?? roomId}】\n$lines';
+      await Clipboard.setData(ClipboardData(text: exportText));
+
+      final card = ActionCardData(
+        type: 'clipboard',
+        badge: '📋 已複製本房清單到剪貼簿',
+        title: room?.title ?? roomId,
+        rows: [
+          '共 ${todos.length} 條待辦已寫入剪貼簿，可直接去 LINE 貼上！',
+        ],
+        buttonLabel: '📋 再複製一次',
+        payload: {'copyText': exportText},
+      );
+      return ToolExecutionOutcome(
+        toolResponse: {'mode': 'export', 'count': todos.length},
+        toolPill: '📋 clipboard：已匯出 ${todos.length} 條至剪貼簿',
+        card: card,
+        directReply: '已經把「${room?.title ?? roomId}」的 ${todos.length} 條清單複製到剪貼簿，直接切去 LINE 貼上就行。',
+      );
+    }
+
+    final clip = await Clipboard.getData(Clipboard.kTextPlain);
+    final rawClip = (clip?.text ?? '').trim();
+    if (rawClip.isEmpty) {
+      return const ToolExecutionOutcome(
+        toolResponse: {'mode': 'import', 'empty': true},
+        toolPill: '📋 clipboard：剪貼簿目前為空',
+        directReply: '剪貼簿裡面目前沒有文字喔，先複製一段訊息再試（要匯出清單請打「@剪貼簿 匯出」）。',
+      );
+    }
+
+    final lines = rawClip
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .take(5)
+        .toList();
+    for (final line in lines) {
+      final short = line.length > 80 ? '${line.substring(0, 80)}...' : line;
+      await _db.upsertTodoItem(roomId: roomId, itemText: short);
+    }
+
+    final card = ActionCardData(
+      type: 'clipboard',
+      badge: '📥 已從剪貼簿匯入待辦',
+      title: '匯入 ${lines.length} 條至本房清單',
+      rows: lines,
+      buttonLabel: '📋 複製原文內容',
+      payload: {'copyText': rawClip},
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {'mode': 'import', 'imported': lines.length},
+      toolPill: '📥 clipboard：已匯入 ${lines.length} 條待辦',
+      card: card,
+      directReply: '幫你把剪貼簿內容匯入這間房的待辦清單了（共 ${lines.length} 條）：',
     );
   }
 

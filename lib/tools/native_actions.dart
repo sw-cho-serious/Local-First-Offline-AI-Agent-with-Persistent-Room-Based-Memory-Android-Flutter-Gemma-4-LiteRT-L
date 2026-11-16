@@ -11,6 +11,8 @@ import 'package:timezone/timezone.dart' as tz;
 class NativeActions {
   static const MethodChannel _calendarChannel =
       MethodChannel('com.weilong.hako/calendar');
+  static const MethodChannel _speechChannel =
+      MethodChannel('com.weilong.hako/speech');
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
@@ -183,5 +185,36 @@ class NativeActions {
       scheduled: true,
       displayTime: '${safeTime.month}/${safeTime.day} $h:$m',
     );
+  }
+
+  static Future<String?> listenSpeech() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final spoken = await _speechChannel.invokeMethod<String>('startListening');
+      final clean = spoken?.trim();
+      return (clean == null || clean.isEmpty) ? null : clean;
+    } catch (e) {
+      debugPrint('[NativeActions] speech recognition error: $e');
+      return null;
+    }
+  }
+
+  static Future<void> setSystemAlarmClock({
+    required int hour,
+    required int minute,
+    required String message,
+    bool skipUi = false,
+  }) async {
+    if (!Platform.isAndroid) return;
+    final intent = AndroidIntent(
+      action: 'android.intent.action.SET_ALARM',
+      arguments: <String, dynamic>{
+        'android.intent.extra.alarm.HOUR': hour.clamp(0, 23),
+        'android.intent.extra.alarm.MINUTES': minute.clamp(0, 59),
+        'android.intent.extra.alarm.MESSAGE': message,
+        'android.intent.extra.alarm.SKIP_UI': skipUi,
+      },
+    );
+    await intent.launch();
   }
 }

@@ -1,7 +1,11 @@
 package com.weilong.xiaoliu
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ContentValues
+import android.content.Intent
 import android.provider.CalendarContract
+import android.speech.RecognizerIntent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -10,7 +14,11 @@ import java.util.TimeZone
 class MainActivity : FlutterActivity() {
     companion object {
         private const val CALENDAR_CHANNEL = "com.weilong.hako/calendar"
+        private const val SPEECH_CHANNEL = "com.weilong.hako/speech"
+        private const val REQ_SPEECH = 9001
     }
+
+    private var pendingSpeechResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -26,6 +34,50 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SPEECH_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "startListening") {
+                    if (pendingSpeechResult != null) {
+                        result.error("BUSY", "語音辨識正在進行中", null)
+                        return@setMethodCallHandler
+                    }
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(
+                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                        )
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-TW")
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "請對 KODARI（可達）說話…")
+                    }
+                    pendingSpeechResult = result
+                    try {
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQ_SPEECH)
+                    } catch (e: ActivityNotFoundException) {
+                        pendingSpeechResult = null
+                        result.error("NO_SPEECH", "此裝置不支援系統語音輸入", null)
+                    }
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_SPEECH) {
+            val cb = pendingSpeechResult
+            pendingSpeechResult = null
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                val results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                cb?.success(results?.firstOrNull())
+            } else {
+                cb?.success(null)
+            }
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun insertCalendarEvent(

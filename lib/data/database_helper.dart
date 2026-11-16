@@ -881,6 +881,78 @@ class DatabaseHelper {
     );
   }
 
+  /// Cross-room memory search (intended for the 'main' hub room).
+  Future<List<({String roomId, String roomTitle, String source, String snippet})>>
+      searchGlobalMemory(String query) async {
+    final db = await database;
+    final rooms = await getRooms();
+    final roomMap = {for (final r in rooms) r.roomId: r};
+
+    final tokens = query
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+
+    final hits =
+        <({String roomId, String roomTitle, String source, String snippet})>[];
+
+    // 1. Search room todos & notes in `data`
+    final dataRows = await db.query('data', where: 'is_deleted = 0');
+    for (final row in dataRows) {
+      final roomId = (row['room_id'] ?? '').toString();
+      final roomTitle = roomMap[roomId]?.title ?? roomId;
+      final value = (row['value'] ?? '').toString();
+      for (final rawLine in value.split('\n')) {
+        final line = rawLine.trim();
+        if (line.isEmpty) continue;
+        final lower = line.toLowerCase();
+        final matched = tokens.isEmpty
+            ? !line.startsWith('- [x]') && !line.startsWith('- [O]')
+            : tokens.every(lower.contains);
+        if (matched) {
+          hits.add((
+            roomId: roomId,
+            roomTitle: roomTitle,
+            source: '待辦',
+            snippet: line,
+          ));
+          if (hits.length >= 8) return hits;
+        }
+      }
+    }
+
+    // 2. Search chat history in `messages` (newest first)
+    if (tokens.isNotEmpty) {
+      final msgRows = await db.query(
+        'messages',
+        where: "is_deleted = 0 AND role != 'divider'",
+        orderBy: 'created_at DESC',
+        limit: 300,
+      );
+      for (final row in msgRows) {
+        final roomId = (row['room_id'] ?? '').toString();
+        final roomTitle = roomMap[roomId]?.title ?? roomId;
+        final role = (row['role'] ?? '').toString();
+        final content = (row['content'] ?? '').toString().trim();
+        if (content.isEmpty) continue;
+        final lower = content.toLowerCase();
+        if (tokens.every(lower.contains)) {
+          hits.add((
+            roomId: roomId,
+            roomTitle: roomTitle,
+            source: role == 'user' ? '你說過' : 'KODARI',
+            snippet: content,
+          ));
+          if (hits.length >= 8) return hits;
+        }
+      }
+    }
+
+    return hits;
+  }
+
   // ---------------- Offline Engineering Lookup Tables ----------------
 
   Future<List<ProfileRecord>> lookupProfiles(String query) async {

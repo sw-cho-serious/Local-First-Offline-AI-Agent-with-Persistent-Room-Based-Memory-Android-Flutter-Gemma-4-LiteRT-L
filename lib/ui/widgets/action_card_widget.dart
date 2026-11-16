@@ -10,11 +10,13 @@ class ActionCardWidget extends StatelessWidget {
     required this.card,
     required this.onCreateRoom,
     required this.onToast,
+    this.onJumpToRoom,
   });
 
   final ActionCardData card;
   final Future<void> Function(String title) onCreateRoom;
   final void Function(String message) onToast;
+  final Future<void> Function(String roomId)? onJumpToRoom;
 
   @override
   Widget build(BuildContext context) {
@@ -110,16 +112,42 @@ class ActionCardWidget extends StatelessWidget {
         break;
       case 'profile':
       case 'tuning':
+      case 'clipboard':
         final copyText = (card.payload['copyText'] ?? card.title).toString();
         await Clipboard.setData(ClipboardData(text: copyText));
         onToast('📋 已複製至剪貼簿');
+        break;
+      case 'memory_hit':
+        final targetRoomId = (card.payload['targetRoomId'] ?? '').toString();
+        if (targetRoomId.isNotEmpty &&
+            targetRoomId != 'main' &&
+            onJumpToRoom != null) {
+          await onJumpToRoom!(targetRoomId);
+        } else {
+          final copyText = (card.payload['copyText'] ?? card.title).toString();
+          await Clipboard.setData(ClipboardData(text: copyText));
+          onToast('📋 已複製搜尋結果');
+        }
         break;
       case 'create_room':
         final name = (card.payload['roomName'] ?? card.title).toString();
         await onCreateRoom(name);
         break;
       case 'notification':
-        onToast('⏰ 系統通知已於 ${card.payload['time'] ?? ''} 排程');
+        final hour = (card.payload['hour'] as num?)?.toInt();
+        final minute = (card.payload['minute'] as num?)?.toInt();
+        final title = (card.payload['title'] ?? card.title).toString();
+        if (hour != null && minute != null) {
+          await NativeActions.setSystemAlarmClock(
+            hour: hour,
+            minute: minute,
+            message: title,
+            skipUi: false,
+          );
+          onToast('⏰ 已開啟系統「時鐘」設定真鬧鐘');
+        } else {
+          onToast('⏰ 系統通知已於 ${card.payload['time'] ?? ''} 排程');
+        }
         break;
     }
   }
