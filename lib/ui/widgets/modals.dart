@@ -474,6 +474,20 @@ Future<RoomRecord?> showCreateRoomDialog({
     ('#A16207', '廠務棕'),
     ('#EC4899', '生活粉'),
     ('#8B5CF6', '其他紫'),
+    ('#06B6D4', '霓虹青'),
+    ('#94A3B8', '鐵灰銀'),
+    ('#F97316', '暖橘紅'),
+    ('#34D399', '薄荷綠'),
+  ];
+  final accessories = [
+    ('helmet', '⛑️ 工安帽'),
+    ('wrench', '🔧 銀板手'),
+    ('box', '📦 HAKO箱'),
+    ('bulb', '💡 靈感燈'),
+    ('glasses', '🕶️ 酷墨鏡'),
+    ('fish', '🐟 釣魚佬'),
+    ('home', '🏠 小屋頂'),
+    ('none', '✨ 純淨版'),
   ];
   var selectedColor = colors.first.$1;
   var selectedAccessory = 'helmet';
@@ -497,11 +511,21 @@ Future<RoomRecord?> showCreateRoomDialog({
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Center(
-                    child: SpiritAvatar(
-                      colorHex: selectedColor,
-                      state: SpiritState.idle,
-                      size: 56,
-                      accessory: selectedAccessory,
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0E1014),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: parseHexColor(selectedColor).withValues(alpha: 0.38),
+                        ),
+                      ),
+                      child: SpiritAvatar(
+                        colorHex: selectedColor,
+                        state: SpiritState.idle,
+                        size: 68,
+                        accessory: selectedAccessory,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -536,22 +560,22 @@ Future<RoomRecord?> showCreateRoomDialog({
                         ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  const Text('專屬配件類型', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
-                  const SizedBox(height: 6),
-                  Row(
+                  const SizedBox(height: 14),
+                  const Text('專屬配件類型（自由混搭）', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      ChoiceChip(
-                        label: const Text('⛑️ 案場工安'),
-                        selected: selectedAccessory == 'helmet',
-                        onSelected: (_) => setState(() => selectedAccessory = 'helmet'),
-                      ),
-                      const SizedBox(width: 8),
-                      ChoiceChip(
-                        label: const Text('🔧 廠務調機'),
-                        selected: selectedAccessory == 'wrench',
-                        onSelected: (_) => setState(() => selectedAccessory = 'wrench'),
-                      ),
+                      for (final (accKey, accLabel) in accessories)
+                        ChoiceChip(
+                          label: Text(accLabel, style: const TextStyle(fontSize: 11.5)),
+                          selected: selectedAccessory == accKey,
+                          selectedColor: parseHexColor(selectedColor).withValues(alpha: 0.35),
+                          backgroundColor: const Color(0xFF111317),
+                          labelStyle: const TextStyle(color: Colors.white),
+                          onSelected: (_) => setState(() => selectedAccessory = accKey),
+                        ),
                     ],
                   ),
                 ],
