@@ -1,0 +1,9 @@
+[
+  {
+    "code": "SAMPLE-01",
+    "weight_per_m": 1.0,
+    "stock_rule": "6000mm",
+    "extrudable": 0,
+    "note": "範例料型（請放入 profiles.local.json 匯入真實料表）"
+  }
+]

@@ -1,0 +1,432 @@
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+
+import '../data/database_helper.dart';
+import '../data/models.dart';
+import 'native_actions.dart';
+
+class AtToolOption {
+  const AtToolOption({
+    required this.atLabel,
+    required this.toolName,
+    required this.subtitle,
+    required this.colorHex,
+  });
+
+  final String atLabel;
+  final String toolName;
+  final String subtitle;
+  final String colorHex;
+}
+
+class ToolExecutionOutcome {
+  const ToolExecutionOutcome({
+    required this.toolResponse,
+    this.toolPill,
+    this.card,
+    this.directReply,
+  });
+
+  final Map<String, dynamic> toolResponse;
+  final String? toolPill;
+  final ActionCardData? card;
+  final String? directReply;
+}
+
+class ToolRegistry {
+  ToolRegistry(this._db);
+
+  final DatabaseHelper _db;
+
+  static const List<AtToolOption> atOptions = [
+    AtToolOption(
+      atLabel: '@查鋁料',
+      toolName: 'lookup_profile',
+      subtitle: '77款規格/單重/排抽',
+      colorHex: '#F59E0B',
+    ),
+    AtToolOption(
+      atLabel: '@查調機',
+      toolName: 'lookup_machine_tuning',
+      subtitle: 'NC沖孔/跨距/鋸路公式',
+      colorHex: '#38BDF8',
+    ),
+    AtToolOption(
+      atLabel: '@記待辦',
+      toolName: 'data_write',
+      subtitle: '安全追加至本房清單',
+      colorHex: '#10B981',
+    ),
+    AtToolOption(
+      atLabel: '@設鬧鐘',
+      toolName: 'schedule_notification',
+      subtitle: '本機通知提醒',
+      colorHex: '#A855F7',
+    ),
+    AtToolOption(
+      atLabel: '@排日曆',
+      toolName: 'create_calendar_event',
+      subtitle: 'Android 日曆草稿卡',
+      colorHex: '#FB7185',
+    ),
+  ];
+
+  static Tool buildSchema(String toolName) {
+    switch (toolName) {
+      case 'lookup_profile':
+        return const Tool(
+          name: 'lookup_profile',
+          description: '查詢自訂材料單米重、定尺規格與門檻資格。若提供長度(mm)與支數，同時算出總重與含損耗備料。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'code': {'type': 'string', 'description': '料號，例如 094, 093Z, 098M, WL2045'},
+              'length_mm': {'type': 'number', 'description': '選填：單支長度(mm)'},
+              'qty': {'type': 'integer', 'description': '選填：支數'},
+            },
+            'required': ['code'],
+          },
+        );
+      case 'lookup_machine_tuning':
+        return const Tool(
+          name: 'lookup_machine_tuning',
+          description: '精準查詢沖孔、彎管、跨距與機台加工公式。查無資料時不可猜測。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '關鍵字或料號，例如 WL2045, 3060X, 邊蓋, 鋸路'},
+            },
+            'required': ['query'],
+          },
+        );
+      case 'data_write':
+        return const Tool(
+          name: 'data_write',
+          description: '將工作項目追加寫入當前工作房間待辦清單（不覆寫舊項目），或將既有項目標為完成。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'item_text': {'type': 'string', 'description': '單筆待辦內容'},
+              'status': {'type': 'string', 'enum': ['pending', 'done'], 'description': 'pending 新增待辦，done 勾選完成'},
+            },
+            'required': ['item_text'],
+          },
+        );
+      case 'schedule_notification':
+        return const Tool(
+          name: 'schedule_notification',
+          description: '設定手機本地提醒通知鬧鐘。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string', 'description': '提醒標題'},
+              'body': {'type': 'string', 'description': '提醒內容'},
+              'trigger_iso': {'type': 'string', 'description': 'ISO8601 本地觸發時間，例如 2026-11-17T08:00:00'},
+            },
+            'required': ['title', 'trigger_iso'],
+          },
+        );
+      case 'create_calendar_event':
+        return const Tool(
+          name: 'create_calendar_event',
+          description: '建立系統日曆事件草稿卡片。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string', 'description': '事件標題'},
+              'start_iso': {'type': 'string', 'description': 'ISO8601 開始時間，例如 2026-11-17T08:00:00'},
+              'description': {'type': 'string', 'description': '補充說明'},
+            },
+            'required': ['title', 'start_iso'],
+          },
+        );
+      default:
+        throw ArgumentError('Unknown tool: $toolName');
+    }
+  }
+
+  Future<ToolExecutionOutcome> executeTool({
+    required String toolName,
+    required Map<String, dynamic> args,
+    required String roomId,
+  }) async {
+    switch (toolName) {
+      case 'lookup_profile':
+        return _runLookupProfile(args);
+      case 'lookup_machine_tuning':
+        return _runLookupTuning(args);
+      case 'data_write':
+        return _runDataWrite(args, roomId);
+      case 'schedule_notification':
+        return _runScheduleNotification(args);
+      case 'create_calendar_event':
+        return _runCreateCalendar(args);
+      default:
+        return ToolExecutionOutcome(
+          toolResponse: {'error': '未知工具: $toolName'},
+          toolPill: '⚠️ 未知工具 $toolName',
+        );
+    }
+  }
+
+  /// Deterministic fallback executor when the 3.7GB LLM weights are not yet
+  /// installed on the device, so @ tools and interactive cards still work 100%.
+  Future<ToolExecutionOutcome> executeFallbackFromAtOption({
+    required AtToolOption option,
+    required String userText,
+    required String roomId,
+  }) async {
+    final clean = userText.trim();
+    switch (option.toolName) {
+      case 'lookup_profile':
+        final match = RegExp(r'([A-Za-z0-9\-\(\)/]+)').firstMatch(clean);
+        final code = match?.group(1) ?? clean;
+        return _runLookupProfile({'code': code});
+      case 'lookup_machine_tuning':
+        return _runLookupTuning({'query': clean});
+      case 'data_write':
+        return _runDataWrite({'item_text': clean, 'status': 'pending'}, roomId);
+      case 'schedule_notification':
+        final dt = parseLooseDateTime(clean);
+        return _runScheduleNotification({
+          'title': clean.isEmpty ? 'KODARI 現場提醒' : clean,
+          'body': clean,
+          'trigger_iso': dt.toIso8601String(),
+        });
+      case 'create_calendar_event':
+        final dt = parseLooseDateTime(clean);
+        return _runCreateCalendar({
+          'title': clean.isEmpty ? '工作排程事件' : clean,
+          'start_iso': dt.toIso8601String(),
+          'description': clean,
+        });
+      default:
+        return const ToolExecutionOutcome(toolResponse: {'status': 'noop'});
+    }
+  }
+
+  Future<ToolExecutionOutcome> _runLookupProfile(Map<String, dynamic> args) async {
+    final code = (args['code'] ?? '').toString().trim();
+    final hits = await _db.lookupProfiles(code);
+    if (hits.isEmpty) {
+      return ToolExecutionOutcome(
+        toolResponse: {'found': false, 'message': '查無料號 $code，嚴禁自行推測單重。'},
+        toolPill: '🔍 lookup_profile：查無 $code',
+        directReply: 'SQLite 料表裡找不到「$code」，照廠裡規矩我不亂猜，再確認一下料號。',
+      );
+    }
+
+    final first = hits.first;
+    final lengthMm = (args['length_mm'] as num?)?.toDouble();
+    final qty = (args['qty'] as num?)?.toInt();
+
+    final rows = <String>[
+      '單米重：${first.weightPerM.toStringAsFixed(2)} kg/m',
+      '定尺規則：${first.stockRule}（鋸路 3.5mm）',
+      '特殊排抽：${first.extrudable ? '可排抽料型（累計 >=300kg 走排抽）' : '固定走一般定尺開料'}',
+    ];
+
+    if (lengthMm != null && qty != null && lengthMm > 0 && qty > 0) {
+      final totalKg = (lengthMm / 1000.0) * qty * first.weightPerM;
+      final prepKg = totalKg * 1.09;
+      rows.add(
+        '試算重量：$qty 支 × ${lengthMm.toStringAsFixed(0)}mm = ${totalKg.toStringAsFixed(2)} kg（1.09 備料 ${prepKg.toStringAsFixed(2)} kg）',
+      );
+      if (first.extrudable && totalKg >= 300.0) {
+        rows.add('🔴 達 300kg 排抽門檻，建議訂製特殊定尺！');
+      }
+    }
+    if (first.note.isNotEmpty) {
+      rows.add('備註：${first.note}');
+    }
+
+    final card = ActionCardData(
+      type: 'profile',
+      badge: '🔩 材料規格表',
+      title: '${first.code} 料型規格',
+      rows: rows,
+      buttonLabel: '📋 一鍵複製規格',
+      payload: {'copyText': '${first.code}｜${rows.join(' / ')}'},
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {
+        'found': true,
+        'code': first.code,
+        'weight_per_m': first.weightPerM,
+        'stock_rule': first.stockRule,
+        'extrudable': first.extrudable,
+        'note': first.note,
+      },
+      toolPill: '🔩 lookup_profile：已撈出 ${first.code}',
+      card: card,
+      directReply: '${first.code} 規格從離線表調出來了：',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runLookupTuning(Map<String, dynamic> args) async {
+    final query = (args['query'] ?? '').toString().trim();
+    final hits = await _db.lookupMachineTuning(query);
+    if (hits.isEmpty) {
+      return ToolExecutionOutcome(
+        toolResponse: {'found': false, 'message': '查無參數，嚴禁模型推論。'},
+        toolPill: '🔧 lookup_machine_tuning：查無參數',
+        directReply: '「$query」在已驗證調機庫裡查無參數，不亂編，現場實測完再補進來。',
+      );
+    }
+
+    final first = hits.first;
+    final rows = <String>[first.formula];
+    if (first.note.isNotEmpty) rows.add(first.note);
+    if (hits.length > 1) {
+      rows.add('另有 ${hits.length - 1} 筆相關條目（可於更多選單 🔍 檢視全部）');
+    }
+
+    final card = ActionCardData(
+      type: 'tuning',
+      badge: '🔧 已驗證加工／調機參數',
+      title: first.title,
+      rows: rows,
+      buttonLabel: '📋 複製調機公式',
+      payload: {'copyText': '${first.title}：${first.formula}'},
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {
+        'found': true,
+        'title': first.title,
+        'formula': first.formula,
+        'note': first.note,
+      },
+      toolPill: '🔧 lookup_machine_tuning：已查出參數',
+      card: card,
+      directReply: '${first.title} 的公式參數在這裡：',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runDataWrite(
+    Map<String, dynamic> args,
+    String roomId,
+  ) async {
+    final text = (args['item_text'] ?? args['value'] ?? '').toString().trim();
+    final status = (args['status'] ?? 'pending').toString().trim();
+    if (text.isEmpty) {
+      return const ToolExecutionOutcome(
+        toolResponse: {'ok': false, 'error': 'item_text 為空'},
+      );
+    }
+    final res = await _db.upsertTodoItem(
+      roomId: roomId,
+      itemText: text,
+      status: status,
+    );
+    return ToolExecutionOutcome(
+      toolResponse: {
+        'ok': true,
+        'key': res.key,
+        'toggled': res.toggled,
+        'done': res.done,
+        'total': res.total,
+      },
+      toolPill: res.toggled ? '☑️ data_write：已更新完成狀態' : '✅ data_write：已追加至 ${res.key}',
+      directReply: res.toggled
+          ? '好，「$text」幫你打勾收掉了（目前進度 ${res.done}/${res.total}）。'
+          : '收到，「$text」已經穩穩追加進這間房的清單了。',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runScheduleNotification(Map<String, dynamic> args) async {
+    final title = (args['title'] ?? 'KODARI 現場提醒').toString();
+    final body = (args['body'] ?? title).toString();
+    final rawTime = (args['trigger_iso'] ?? '').toString();
+    final triggerTime = DateTime.tryParse(rawTime) ?? parseLooseDateTime(body);
+
+    final res = await NativeActions.scheduleReminder(
+      title: title,
+      body: body,
+      triggerTime: triggerTime,
+    );
+
+    final card = ActionCardData(
+      type: 'notification',
+      badge: '⏰ 本地提醒已排程',
+      title: title,
+      rows: [
+        '提醒時間：${res.displayTime}',
+        if (body != title) '備註：$body',
+      ],
+      buttonLabel: '⏰ 系統通知已設定',
+      payload: {'time': res.displayTime},
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {'scheduled': res.scheduled, 'time': res.displayTime},
+      toolPill: '⏰ 已設定提醒：${res.displayTime}',
+      card: card,
+      directReply: '好，${res.displayTime} 的提醒幫你釘好了。',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runCreateCalendar(Map<String, dynamic> args) async {
+    final title = (args['title'] ?? '工作排程事件').toString();
+    final desc = (args['description'] ?? '由《HAKO • KODARI》建立').toString();
+    final rawStart = (args['start_iso'] ?? '').toString();
+    final startTime = DateTime.tryParse(rawStart) ?? parseLooseDateTime(title);
+    final h = startTime.hour.toString().padLeft(2, '0');
+    final m = startTime.minute.toString().padLeft(2, '0');
+    final display = '${startTime.year}/${startTime.month}/${startTime.day} $h:$m';
+
+    final card = ActionCardData(
+      type: 'calendar',
+      badge: '📅 系統日曆草稿',
+      title: title,
+      rows: [
+        '時間：$display',
+        '備註：$desc',
+      ],
+      buttonLabel: '📅 寫入系統日曆',
+      payload: {
+        'title': title,
+        'startIso': startTime.toIso8601String(),
+        'description': desc,
+      },
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {'draft_ready': true, 'title': title, 'start': display},
+      toolPill: '📅 create_calendar_event：已組裝日曆草稿',
+      card: card,
+      directReply: '日曆卡片排好了，確認沒錯點一下直接寫進系統日曆：',
+    );
+  }
+
+  /// Parses simple Chinese time hints ("明天 8點", "08:30", "後天早上") for offline fallback.
+  static DateTime parseLooseDateTime(String text) {
+    final now = DateTime.now();
+    var dayOffset = 0;
+    if (text.contains('明天') || text.contains('明日')) {
+      dayOffset = 1;
+    } else if (text.contains('後天')) {
+      dayOffset = 2;
+    }
+
+    var hour = 8;
+    var minute = 0;
+    final colonMatch = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(text);
+    final zhMatch = RegExp(r'(\d{1,2})\s*[點時](?:\s*(\d{1,2})\s*分?)?').firstMatch(text);
+    if (colonMatch != null) {
+      hour = int.tryParse(colonMatch.group(1)!) ?? 8;
+      minute = int.tryParse(colonMatch.group(2)!) ?? 0;
+    } else if (zhMatch != null) {
+      hour = int.tryParse(zhMatch.group(1)!) ?? 8;
+      if (text.contains('下午') || text.contains('晚上')) {
+        if (hour < 12) hour += 12;
+      }
+      minute = int.tryParse(zhMatch.group(2) ?? '0') ?? 0;
+    } else if (dayOffset == 0) {
+      return now.add(const Duration(minutes: 10));
+    }
+
+    final target = DateTime(now.year, now.month, now.day + dayOffset, hour.clamp(0, 23), minute.clamp(0, 59));
+    return target.isBefore(now) ? target.add(const Duration(days: 1)) : target;
+  }
+}

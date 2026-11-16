@@ -1,0 +1,9 @@
+[
+  {
+    "id": "SAMPLE-TUNE",
+    "keywords": "SAMPLE,範例",
+    "title": "範例調機參數",
+    "formula": "請匯入 machine_tuning.local.json",
+    "note": "查無資料嚴禁腦補"
+  }
+]
