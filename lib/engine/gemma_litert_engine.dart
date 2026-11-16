@@ -570,7 +570,9 @@ class GemmaLiteRtEngine implements LlmEngine {
   }
 
   String? _detectSuggestedRoom(String text) {
-    final m = RegExp(r'開(?:一間|設|立)?新?(?:工作)?房間[叫名為：:\s]*([^\s，。！!？?]{2,16})').firstMatch(text);
+    final m = RegExp(
+      r'開(?:一個|一間|設|立)?新?(?:工作)?房間(?:\s*(?:叫做|叫名為|叫作|名為|叫|：|:))*\s*([^\s，。！!？?]{2,16})',
+    ).firstMatch(text);
     if (m != null) return m.group(1);
     return null;
   }

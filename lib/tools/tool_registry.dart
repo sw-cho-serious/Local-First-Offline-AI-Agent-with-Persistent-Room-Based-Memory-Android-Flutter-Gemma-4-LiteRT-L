@@ -723,7 +723,8 @@ class ToolRegistry {
   }
 
   /// Parses simple Chinese time hints ("1分鐘後", "測試 2分鐘", "明天 8點", "08:30") cleanly.
-  static DateTime parseLooseDateTime(String text) {
+  static DateTime parseLooseDateTime(String rawText) {
+    final text = rawText.replaceAll('：', ':');
     final now = DateTime.now();
 
     // 1. Relative time hints ("1分鐘後", "五分鐘之後", "測試 2分鐘", "2小時後", "半小時後", "30秒後")
@@ -756,7 +757,7 @@ class ToolRegistry {
 
     var hour = 8;
     var minute = 0;
-    final colonMatch = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(text);
+    final colonMatch = RegExp(r'(\d{1,2})\s*:\s*(\d{2})').firstMatch(text);
     final zhMatch = RegExp(r'(\d{1,2})\s*[點時](?:\s*(\d{1,2})\s*分?)?').firstMatch(text);
     final militaryMatch = RegExp(r'(?<!\d)([01]\d|2[0-3])([0-5]\d)(?!\d|\s*(?:mm|MM|kg|KG|支|隻|片|條))').firstMatch(text);
     if (colonMatch != null) {
