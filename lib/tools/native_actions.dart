@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:io';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 class NativeActions {
+  static const MethodChannel _calendarChannel =
+      MethodChannel('com.weilong.hako/calendar');
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
@@ -35,6 +38,52 @@ class NativeActions {
     if (req.isGranted) return true;
     final storage = await Permission.storage.request();
     return storage.isGranted;
+  }
+
+  static Future<({bool inserted, String calendarName, String? error})>
+      insertCalendarEventDirect({
+    required String title,
+    required DateTime startTime,
+    DateTime? endTime,
+    String? description,
+  }) async {
+    if (!Platform.isAndroid) {
+      return (inserted: false, calendarName: '', error: '非 Android 環境');
+    }
+    var status = await Permission.calendarFullAccess.status;
+    if (!status.isGranted) {
+      status = await Permission.calendarFullAccess.request();
+    }
+    if (!status.isGranted) {
+      return (inserted: false, calendarName: '', error: '未授權日曆讀寫權限');
+    }
+
+    final end = endTime ?? startTime.add(const Duration(hours: 1));
+    try {
+      final res = await _calendarChannel.invokeMapMethod<String, dynamic>(
+        'insertEvent',
+        {
+          'title': title,
+          'description': description ?? 'KODARI 離線排程建立',
+          'startMs': startTime.millisecondsSinceEpoch,
+          'endMs': end.millisecondsSinceEpoch,
+        },
+      );
+      if (res != null && res['ok'] == true) {
+        return (
+          inserted: true,
+          calendarName: (res['calendarName'] ?? '系統日曆').toString(),
+          error: null,
+        );
+      }
+      return (
+        inserted: false,
+        calendarName: '',
+        error: res?['reason']?.toString() ?? '寫入失敗',
+      );
+    } catch (e) {
+      return (inserted: false, calendarName: '', error: e.toString());
+    }
   }
 
   static Future<void> openCalendarDraft({

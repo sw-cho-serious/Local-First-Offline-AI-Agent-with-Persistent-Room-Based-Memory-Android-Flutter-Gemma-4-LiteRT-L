@@ -375,6 +375,44 @@ class ToolRegistry {
     final m = startTime.minute.toString().padLeft(2, '0');
     final display = '${startTime.year}/${startTime.month}/${startTime.day} $h:$m';
 
+    final direct = await NativeActions.insertCalendarEventDirect(
+      title: title,
+      startTime: startTime,
+      description: desc,
+    );
+
+    if (direct.inserted) {
+      final card = ActionCardData(
+        type: 'calendar',
+        badge: '📅 已寫入系統日曆',
+        title: title,
+        rows: [
+          '時間：$display',
+          '日曆：${direct.calendarName}',
+          '備註：$desc',
+        ],
+        buttonLabel: '',
+        payload: {
+          'title': title,
+          'startIso': startTime.toIso8601String(),
+          'description': desc,
+          'inserted': true,
+        },
+      );
+
+      return ToolExecutionOutcome(
+        toolResponse: {
+          'inserted': true,
+          'calendar': direct.calendarName,
+          'title': title,
+          'start': display,
+        },
+        toolPill: '📅 已直接寫入日曆：$display',
+        card: card,
+        directReply: '好，$display 的「$title」已經直接幫你寫進日曆了。',
+      );
+    }
+
     final card = ActionCardData(
       type: 'calendar',
       badge: '📅 系統日曆草稿',
