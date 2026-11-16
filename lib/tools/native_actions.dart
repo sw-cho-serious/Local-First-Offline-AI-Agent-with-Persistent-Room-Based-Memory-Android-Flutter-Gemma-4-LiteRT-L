@@ -26,7 +26,7 @@ class NativeActions {
       // Fallback to UTC if location lookup fails in unusual environments.
     }
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings('ic_stat_hako');
     const settings = InitializationSettings(android: androidSettings);
     await _notifications.initialize(settings: settings);
     _initialized = true;

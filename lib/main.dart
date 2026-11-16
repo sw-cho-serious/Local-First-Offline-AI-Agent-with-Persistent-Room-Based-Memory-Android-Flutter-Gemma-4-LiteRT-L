@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'data/database_helper.dart';
+import 'data/models.dart';
 import 'engine/gemma_litert_engine.dart';
 import 'sync/cloud_sync_service.dart';
 import 'tools/native_actions.dart';
 import 'tools/tool_registry.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/setup_gate_screen.dart';
+import 'ui/widgets/spirit_avatar.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -99,20 +101,83 @@ class _XiaoLiuAppState extends State<XiaoLiuApp> {
   }
 }
 
-class _BootSplashScreen extends StatelessWidget {
+class _BootSplashScreen extends StatefulWidget {
   const _BootSplashScreen();
 
   @override
+  State<_BootSplashScreen> createState() => _BootSplashScreenState();
+}
+
+class _BootSplashScreenState extends State<_BootSplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _bounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _bounce = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Color(0xFF111317),
+    return Scaffold(
+      backgroundColor: const Color(0xFF111317),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(color: Color(0xFFF59E0B)),
-            SizedBox(height: 16),
-            Text(
+            AnimatedBuilder(
+              animation: _bounce,
+              builder: (context, child) {
+                final dy = -14.0 * _bounce.value;
+                final shadowScale = 1.0 - (0.28 * _bounce.value);
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Transform.translate(
+                      offset: Offset(0, dy),
+                      child: child,
+                    ),
+                    const SizedBox(height: 6),
+                    Transform.scale(
+                      scaleX: shadowScale,
+                      scaleY: shadowScale,
+                      child: Container(
+                        width: 44,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+              child: const SpiritAvatar(
+                colorHex: '#F59E0B',
+                state: SpiritState.thinking,
+                size: 74,
+                isMain: true,
+                accessory: 'main',
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
               '正在喚醒 KODARI…',
               style: TextStyle(color: Color(0xFFD1D5DB), fontSize: 14),
             ),
