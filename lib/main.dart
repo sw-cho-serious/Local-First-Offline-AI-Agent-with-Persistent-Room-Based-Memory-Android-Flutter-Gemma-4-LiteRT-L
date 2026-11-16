@@ -12,16 +12,11 @@ import 'ui/screens/home_screen.dart';
 import 'ui/screens/setup_gate_screen.dart';
 import 'ui/widgets/spirit_avatar.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await NativeActions.initialize();
 
   final db = DatabaseHelper.instance;
-  await db.seedIfNeeded();
-
   final syncService = CloudSyncService(db);
-  unawaited(syncService.syncOnStartupIfConfigured());
-
   final tools = ToolRegistry(db);
   final engine = GemmaLiteRtEngine(db: db, toolRegistry: tools);
 
@@ -56,10 +51,25 @@ class _XiaoLiuAppState extends State<XiaoLiuApp> {
 
   Future<void> _silentBootstrap() async {
     try {
+      await NativeActions.initialize();
+    } catch (e) {
+      debugPrint('[Boot] NativeActions.initialize error: $e');
+    }
+
+    try {
+      await widget.db.seedIfNeeded();
+    } catch (e) {
+      debugPrint('[Boot] seedIfNeeded error: $e');
+    }
+
+    unawaited(widget.syncService.syncOnStartupIfConfigured());
+
+    try {
       await widget.engine.initializeEngine();
     } catch (e) {
       debugPrint('[Boot] initializeEngine error: $e');
     }
+
     if (!mounted) return;
     setState(() {
       _booting = false;
