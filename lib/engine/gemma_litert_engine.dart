@@ -202,10 +202,17 @@ class GemmaLiteRtEngine implements LlmEngine {
     );
   }
 
+  String? _defaultAmbientToolForRoom(String roomId) {
+    if (roomId == 'main') return 'search_memory';
+    if (roomId.startsWith('para:archives:')) return null;
+    return 'data_write';
+  }
+
   @override
   Future<void> prewarmRoomSession(String roomId) {
     if (_model == null) return Future<void>.value();
-    if (_activeRoomId == roomId && _activeChat != null && (_activeToolKey == null || _activeToolKey!.isEmpty)) {
+    final ambientTool = _defaultAmbientToolForRoom(roomId);
+    if (_activeRoomId == roomId && _activeChat != null && _activeToolKey == ambientTool) {
       return Future<void>.value();
     }
     if (_prewarmFuture != null && _prewarmRoomId == roomId) {
@@ -215,10 +222,10 @@ class GemmaLiteRtEngine implements LlmEngine {
     _prewarmRoomId = roomId;
     final future = _mutex.synchronized(() async {
       if (_model == null) return;
-      if (_activeRoomId == roomId && _activeChat != null && (_activeToolKey == null || _activeToolKey!.isEmpty)) {
+      if (_activeRoomId == roomId && _activeChat != null && _activeToolKey == ambientTool) {
         return;
       }
-      await _buildChatSessionInternal(roomId: roomId, toolName: null);
+      await _buildChatSessionInternal(roomId: roomId, toolName: ambientTool);
     });
     _prewarmFuture = future.whenComplete(() {
       if (identical(_prewarmFuture, future)) {
@@ -464,7 +471,7 @@ class GemmaLiteRtEngine implements LlmEngine {
       try {
         controller.add(const EngineStateHint(SpiritState.thinking));
 
-        final desiredTool = mountedTool?.toolName;
+        final desiredTool = mountedTool?.toolName ?? _defaultAmbientToolForRoom(roomId);
         if (_activeChat == null ||
             _activeRoomId != roomId ||
             _activeToolKey != desiredTool) {
