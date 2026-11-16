@@ -348,5 +348,21 @@ void main() {
     expect(roomHits, isNotEmpty);
     expect(roomHits.any((h) => h.snippet.startsWith('@搜記憶')), isFalse);
     expect(roomHits.any((h) => h.roomId == 'para:projects:demo_project_a'), isTrue);
+
+    // MEMORY.md autonomous distillation storage, dedupe, and 20-entry cap
+    final traits = await db.getAllTraits();
+    expect(traits.containsKey('MEMORY.md'), isTrue);
+    expect(await db.appendDistilledMemory('NONE'), isFalse);
+    expect(await db.appendDistilledMemory('- 喜歡早上八點準時出車'), isTrue);
+    expect(await db.appendDistilledMemory('喜歡早上八點準時出車'), isFalse);
+    for (var i = 0; i < 25; i++) {
+      await db.appendDistilledMemory('記憶項目 $i');
+    }
+    final updatedTraits = await db.getAllTraits();
+    final memLines = updatedTraits['MEMORY.md']!
+        .split('\n')
+        .where((l) => l.startsWith('- '))
+        .toList();
+    expect(memLines.length, 20);
   });
 }

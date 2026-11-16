@@ -79,6 +79,20 @@ class _HomeScreenState extends State<HomeScreen> {
     _lastSeenSyncAtMs = widget.syncService.lastSyncAtMs;
     widget.syncService.addListener(_onSyncServiceChanged);
     _loadAllData();
+    unawaited(_recoverLostCameraImage());
+  }
+
+  Future<void> _recoverLostCameraImage() async {
+    try {
+      final response = await _picker.retrieveLostData();
+      if (response.isEmpty || response.file == null) return;
+      final compressed = await ImageCompressor.compressAndSave(response.file!.path);
+      if (!mounted) return;
+      setState(() => _pendingImage = compressed);
+      _showToast('📷 已救回剛才拍攝的照片 (${compressed.width}×${compressed.height})');
+    } catch (_) {
+      // Ignore on unsupported platforms or when no lost data exists.
+    }
   }
 
   void _onSyncServiceChanged() {
@@ -317,7 +331,19 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _pickPhoto(ImageSource source) async {
     _prewarmOnInteraction();
     try {
-      final file = await _picker.pickImage(source: source);
+      if (source == ImageSource.camera) {
+        final granted = await NativeActions.ensureCameraPermission();
+        if (!granted) {
+          _showToast('📷 請允許相機權限後再拍照');
+          return;
+        }
+      }
+      final file = await _picker.pickImage(
+        source: source,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
+      );
       if (file == null) return;
       final compressed = await ImageCompressor.compressAndSave(file.path);
       if (!mounted) return;

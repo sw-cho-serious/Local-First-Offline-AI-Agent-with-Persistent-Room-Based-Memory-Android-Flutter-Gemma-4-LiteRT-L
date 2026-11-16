@@ -251,6 +251,7 @@ class GemmaLiteRtEngine implements LlmEngine {
     final user = traits['USER.md'] ?? '';
     final relationship = traits['relationship.md'] ?? '';
     final mood = traits['mood.md'] ?? '';
+    final memory = traits['MEMORY.md'] ?? '';
 
     final activeRoomNames = rooms
         .where((r) => !r.isMain && !r.isArchived)
@@ -283,6 +284,12 @@ class GemmaLiteRtEngine implements LlmEngine {
         ..writeln()
         ..writeln('【近期狀態】')
         ..writeln(mood.trim());
+    }
+    if (memory.contains('- ')) {
+      buf
+        ..writeln()
+        ..writeln('【長期自主蒸餾記憶 (MEMORY.md)】')
+        ..writeln(memory.trim());
     }
 
     if (activeRoomNames.isNotEmpty) {
@@ -633,6 +640,36 @@ $transcript
           if (_activeRoomId == roomId) {
             await _closeActiveChatOnly();
           }
+        }
+
+        // Autonomous MEMORY.md distillation (1 new user fact if any, else NONE)
+        await compactorChat.close();
+        compactorChat = null;
+        final traits = await db.getAllTraits();
+        final existingMem = traits['MEMORY.md'] ?? '';
+        final memPrompt = '''
+從以下對話中，只抽「1 條」關於使用者的新長期事實、偏好、習慣或固定規則（30字以內，開頭用 - ）。
+鐵律：不要重複既有記憶；沒有值得長期記住的新資訊就只回覆 NONE。
+既有記憶：
+$existingMem
+對話：
+$transcript
+''';
+        compactorChat = await model.openChat(
+          supportImage: false,
+          supportsFunctionCalls: false,
+          enableThinking: false,
+          modelType: ModelType.gemma4,
+          maxOutputTokens: 80,
+        );
+        await compactorChat.addQueryChunk(Message.text(text: memPrompt, isUser: true));
+        final memBuf = StringBuffer();
+        await for (final r in compactorChat.generateChatResponseAsync()) {
+          if (r is TextResponse) memBuf.write(r.token);
+        }
+        final distilled = memBuf.toString().trim();
+        if (distilled.isNotEmpty && !distilled.toUpperCase().contains('NONE')) {
+          await db.appendDistilledMemory(distilled);
         }
       } catch (e) {
         debugPrint('[Compactor] skip error: $e');

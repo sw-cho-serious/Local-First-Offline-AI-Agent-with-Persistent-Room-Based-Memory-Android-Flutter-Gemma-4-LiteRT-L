@@ -229,6 +229,22 @@ class DatabaseHelper {
       }
     }
 
+    // Ensure MEMORY.md exists for autonomous background user-fact distillation
+    final existingMemory = await db.query(
+      'traits',
+      where: "name = 'MEMORY.md'",
+      limit: 1,
+    );
+    if (existingMemory.isEmpty) {
+      await db.insert('traits', {
+        'name': 'MEMORY.md',
+        'content': '# 長期自主蒸餾記憶（背景自動整理，上限 20 條）\n',
+        'updated_at': now,
+        'sync_status': 'pending',
+        'is_deleted': 0,
+      });
+    }
+
     // 2. Seed profiles (refreshable static lookup table)
     final profileCount = Sqflite.firstIntValue(
           await db.rawQuery('SELECT COUNT(*) FROM profiles'),
@@ -1042,6 +1058,41 @@ class DatabaseHelper {
     }
 
     return strictHits.isNotEmpty ? strictHits : looseHits;
+  }
+
+  /// Appends a newly distilled long-term user fact into MEMORY.md (deduped, max 20 entries).
+  Future<bool> appendDistilledMemory(String rawFact) async {
+    var clean = rawFact
+        .replaceAll(RegExp(r'^[-*•\s]+'), '')
+        .replaceAll('\n', ' ')
+        .trim();
+    if (clean.isEmpty) return false;
+    final upper = clean.toUpperCase();
+    if (upper == 'NONE' || upper.contains('NONE') || clean == '無' || clean == '（無）') {
+      return false;
+    }
+    if (clean.length > 60) {
+      clean = '${clean.substring(0, 60)}...';
+    }
+
+    final traits = await getAllTraits();
+    final existing = traits['MEMORY.md'] ?? '# 長期自主蒸餾記憶（背景自動整理，上限 20 條）\n';
+    final items = existing
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.startsWith('- '))
+        .toList();
+
+    final lowerNew = clean.toLowerCase();
+    if (items.any((l) => l.substring(2).trim().toLowerCase() == lowerNew || l.toLowerCase().contains(lowerNew))) {
+      return false;
+    }
+
+    items.add('- $clean');
+    final capped = items.length > 20 ? items.sublist(items.length - 20) : items;
+    final nextContent = '# 長期自主蒸餾記憶（背景自動整理，上限 20 條）\n${capped.join('\n')}\n';
+    await upsertTrait('MEMORY.md', nextContent);
+    return true;
   }
 
   // ---------------- Offline Engineering Lookup Tables ----------------

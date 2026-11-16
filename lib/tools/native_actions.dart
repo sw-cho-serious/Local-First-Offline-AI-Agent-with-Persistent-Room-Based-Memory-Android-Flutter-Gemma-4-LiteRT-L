@@ -42,6 +42,14 @@ class NativeActions {
     return storage.isGranted;
   }
 
+  static Future<bool> ensureCameraPermission() async {
+    if (!Platform.isAndroid) return true;
+    final status = await Permission.camera.status;
+    if (status.isGranted) return true;
+    final req = await Permission.camera.request();
+    return req.isGranted;
+  }
+
   static Future<({bool inserted, String calendarName, String? error})>
       insertCalendarEventDirect({
     required String title,
