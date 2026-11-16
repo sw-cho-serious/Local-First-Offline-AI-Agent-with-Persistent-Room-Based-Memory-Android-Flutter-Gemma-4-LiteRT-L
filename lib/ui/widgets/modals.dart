@@ -595,7 +595,7 @@ Future<void> showTraitsEditorModal({
 }) async {
   final traits = await db.getAllTraits();
   if (!context.mounted) return;
-  final keys = ['SOUL.md', 'VOICE.md', 'USER.md', 'relationship.md', 'mood.md'];
+  final keys = ['SOUL.md', 'VOICE.md', 'USER.md', 'relationship.md', 'mood.md', 'MEMORY.md'];
   var activeKey = keys.first;
   final editor = TextEditingController(text: traits[activeKey] ?? '');
 
