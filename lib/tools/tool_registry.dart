@@ -420,9 +420,30 @@ class ToolRegistry {
     return parsed;
   }
 
-  /// Parses simple Chinese time hints ("明天 8點", "08:30", "後天早上") for offline fallback.
+  /// Parses simple Chinese time hints ("1分鐘後", "明天 8點", "08:30", "後天早上") for offline fallback.
   static DateTime parseLooseDateTime(String text) {
     final now = DateTime.now();
+
+    // 1. Relative time hints ("1分鐘後", "五分鐘後", "2小時後", "半小時後", "30秒後")
+    if (text.contains('半小時後') || text.contains('半小時內')) {
+      return now.add(const Duration(minutes: 30));
+    }
+    final secMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*秒(?:鐘)?\s*(?:後|以後|之內)').firstMatch(text);
+    if (secMatch != null) {
+      final secs = _parseZhOrInt(secMatch.group(1)!);
+      if (secs > 0) return now.add(Duration(seconds: secs));
+    }
+    final minMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*分(?:鐘)?\s*(?:後|以後|之內)').firstMatch(text);
+    if (minMatch != null) {
+      final mins = _parseZhOrInt(minMatch.group(1)!);
+      if (mins > 0) return now.add(Duration(minutes: mins));
+    }
+    final hourMatch = RegExp(r'(\d+|[一二兩三四五六七八九十]+)\s*(?:小)?時\s*(?:後|以後|之內)').firstMatch(text);
+    if (hourMatch != null) {
+      final hrs = _parseZhOrInt(hourMatch.group(1)!);
+      if (hrs > 0) return now.add(Duration(hours: hrs));
+    }
+
     var dayOffset = 0;
     if (text.contains('明天') || text.contains('明日')) {
       dayOffset = 1;
@@ -449,5 +470,24 @@ class ToolRegistry {
 
     final target = DateTime(now.year, now.month, now.day + dayOffset, hour.clamp(0, 23), minute.clamp(0, 59));
     return target.isBefore(now) ? target.add(const Duration(days: 1)) : target;
+  }
+
+  static int _parseZhOrInt(String raw) {
+    final direct = int.tryParse(raw);
+    if (direct != null) return direct;
+    const map = {
+      '一': 1,
+      '二': 2,
+      '兩': 2,
+      '三': 3,
+      '四': 4,
+      '五': 5,
+      '六': 6,
+      '七': 7,
+      '八': 8,
+      '九': 9,
+      '十': 10,
+    };
+    return map[raw] ?? 0;
   }
 }

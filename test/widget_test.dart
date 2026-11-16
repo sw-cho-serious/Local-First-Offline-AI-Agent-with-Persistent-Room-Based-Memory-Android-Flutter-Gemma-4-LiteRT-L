@@ -293,5 +293,12 @@ void main() {
     final now = DateTime.now();
     expect(calOutcome.card, isNotNull);
     expect(calOutcome.card!.rows.first, contains('${now.year}/${now.month}/${now.day} 14:00'));
+
+    final oneMin = ToolRegistry.parseLooseDateTime('1分鐘後測試響鈴');
+    final diffSec = oneMin.difference(now).inSeconds;
+    expect(diffSec, inInclusiveRange(55, 65));
+
+    final fiveMin = ToolRegistry.parseLooseDateTime('五分鐘後喝水');
+    expect(fiveMin.difference(now).inMinutes, inInclusiveRange(4, 5));
   });
 }

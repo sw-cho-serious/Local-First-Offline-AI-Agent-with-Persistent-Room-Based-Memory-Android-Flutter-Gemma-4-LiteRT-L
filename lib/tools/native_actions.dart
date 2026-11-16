@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/foundation.dart';
@@ -95,8 +96,8 @@ class NativeActions {
         notificationDetails: details,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       );
-    } catch (_) {
-      // Fallback to inexact schedule if exact alarm permission is denied.
+    } catch (e) {
+      debugPrint('[NativeActions] exactAllowWhileIdle failed ($e), falling back to inexact + timer');
       final tzDate = tz.TZDateTime.from(safeTime, tz.local);
       await _notifications.zonedSchedule(
         id: id,
@@ -106,6 +107,19 @@ class NativeActions {
         notificationDetails: details,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       );
+      // Inexact alarms on Android 14+ may be batched/delayed by minutes;
+      // fire an immediate in-process timer fallback for short reminders while app is alive.
+      final delay = safeTime.difference(DateTime.now());
+      if (delay > Duration.zero && delay <= const Duration(minutes: 30)) {
+        Timer(delay, () {
+          unawaited(_notifications.show(
+            id: id,
+            title: title,
+            body: body,
+            notificationDetails: details,
+          ));
+        });
+      }
     }
 
     final h = safeTime.hour.toString().padLeft(2, '0');
