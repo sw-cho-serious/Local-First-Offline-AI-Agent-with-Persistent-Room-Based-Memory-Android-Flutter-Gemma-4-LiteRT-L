@@ -530,6 +530,7 @@ class ToolRegistry {
     var minute = 0;
     final colonMatch = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(text);
     final zhMatch = RegExp(r'(\d{1,2})\s*[點時](?:\s*(\d{1,2})\s*分?)?').firstMatch(text);
+    final militaryMatch = RegExp(r'(?<!\d)([01]\d|2[0-3])([0-5]\d)(?!\d|\s*(?:mm|MM|kg|KG|支|隻|片|條))').firstMatch(text);
     if (colonMatch != null) {
       hour = int.tryParse(colonMatch.group(1)!) ?? 8;
       minute = int.tryParse(colonMatch.group(2)!) ?? 0;
@@ -539,6 +540,9 @@ class ToolRegistry {
         if (hour < 12) hour += 12;
       }
       minute = int.tryParse(zhMatch.group(2) ?? '0') ?? 0;
+    } else if (militaryMatch != null) {
+      hour = int.tryParse(militaryMatch.group(1)!) ?? 8;
+      minute = int.tryParse(militaryMatch.group(2)!) ?? 0;
     } else if (dayOffset == 0) {
       return now.add(const Duration(minutes: 10));
     }
@@ -574,6 +578,7 @@ class ToolRegistry {
         .replaceAll(RegExp(r'半小時(?:之後|以後|後)?'), '')
         .replaceAll(RegExp(r'\d{1,2}:\d{2}'), '')
         .replaceAll(RegExp(r'\d{1,2}\s*[點時](?:\s*\d{1,2}\s*分?)?'), '')
+        .replaceAll(RegExp(r'(?<!\d)([01]\d|2[0-3])([0-5]\d)(?!\d|\s*(?:mm|MM|kg|KG|支|隻|片|條))'), '')
         .replaceAll(RegExp(r'今天|今日|明天|明日|後天|早上|上午|中午|下午|晚上|提醒我|叫我'), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();

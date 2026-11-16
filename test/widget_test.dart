@@ -308,5 +308,9 @@ void main() {
     expect(matched, isNotNull);
     expect(matched!.option.toolName, 'create_calendar_event');
     expect(matched.cleanText, '測試 今天');
+
+    final mil = ToolRegistry.parseLooseDateTime('今天1800 下班');
+    expect(mil.hour, 18);
+    expect(mil.minute, 0);
   });
 }
