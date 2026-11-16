@@ -13,6 +13,7 @@ import '../../engine/llm_engine.dart';
 import '../../sync/cloud_sync_service.dart';
 import '../../tools/native_actions.dart';
 import '../../tools/tool_registry.dart';
+import '../../tools/tts_service.dart';
 import '../widgets/action_card_widget.dart';
 import '../widgets/modals.dart';
 import '../widgets/spirit_avatar.dart';
@@ -80,6 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
     widget.syncService.addListener(_onSyncServiceChanged);
     _loadAllData();
     unawaited(_recoverLostCameraImage());
+    unawaited(TtsService.instance.initialize());
   }
 
   Future<void> _recoverLostCameraImage() async {
@@ -542,6 +544,9 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       await _loadRoomContent(roomIdForTurn);
       _resetIdleTimer();
+      if (TtsService.instance.autoRead && finalReply != '（無輸出內容）') {
+        unawaited(TtsService.instance.speak(finalReply));
+      }
     } finally {
       _sendingLock = false;
     }
@@ -1118,6 +1123,48 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
+          // 🔊 Built-in TTS auto-read toggle / stop button
+          ListenableBuilder(
+            listenable: TtsService.instance,
+            builder: (context, _) {
+              final tts = TtsService.instance;
+              final active = tts.autoRead || tts.isSpeaking;
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: IconButton(
+                  tooltip: tts.isSpeaking
+                      ? '停止朗讀'
+                      : (tts.autoRead ? '關閉自動朗讀' : '開啟自動朗讀'),
+                  style: IconButton.styleFrom(
+                    backgroundColor: active
+                        ? const Color(0xFFF59E0B).withValues(alpha: 0.16)
+                        : Colors.white.withValues(alpha: 0.06),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                  ),
+                  icon: Icon(
+                    tts.isSpeaking
+                        ? Icons.stop_circle_outlined
+                        : (tts.autoRead
+                            ? Icons.volume_up_rounded
+                            : Icons.volume_off_outlined),
+                    color: active ? const Color(0xFFFCD34D) : const Color(0xFF9CA3AF),
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    if (tts.isSpeaking) {
+                      unawaited(tts.stop());
+                      _showToast('🔇 已停止朗讀');
+                    } else {
+                      tts.toggleAutoRead();
+                      _showToast(tts.autoRead ? '🔊 已開啟自動朗讀' : '🔇 已關閉自動朗讀');
+                    }
+                  },
+                ),
+              );
+            },
+          ),
           // ☁️ P2 Cloud Handoff & Sync button
           ListenableBuilder(
             listenable: widget.syncService,
@@ -1665,10 +1712,38 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                    if (msgRecord != null)
+                    if (msgRecord != null) ...[
+                      ListenableBuilder(
+                        listenable: TtsService.instance,
+                        builder: (context, _) {
+                          final tts = TtsService.instance;
+                          final isThisPlaying =
+                              tts.isSpeaking && tts.speakingMessageId == msgRecord.id;
+                          return SizedBox(
+                            width: 32,
+                            height: 36,
+                            child: IconButton(
+                              padding: EdgeInsets.zero,
+                              tooltip: isThisPlaying ? '停止朗讀' : '朗讀這則訊息',
+                              icon: Icon(
+                                isThisPlaying
+                                    ? Icons.stop_circle_outlined
+                                    : Icons.volume_up_outlined,
+                                size: 17,
+                                color: isThisPlaying
+                                    ? const Color(0xFFFCD34D)
+                                    : const Color(0xFF9CA3AF),
+                              ),
+                              onPressed: () => unawaited(
+                                tts.speak(text, messageId: msgRecord.id),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                       SizedBox(
-                        width: 38,
-                        height: 38,
+                        width: 34,
+                        height: 36,
                         child: IconButton(
                           padding: EdgeInsets.zero,
                           tooltip: '操作訊息',
@@ -1679,6 +1754,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onPressed: () => _showMessageActionSheet(msgRecord),
                         ),
                       ),
+                    ],
                   ],
                 ),
               ],

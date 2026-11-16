@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import '../../data/models.dart';
 import '../../tools/native_actions.dart';
 
-class ActionCardWidget extends StatelessWidget {
+class ActionCardWidget extends StatefulWidget {
   const ActionCardWidget({
     super.key,
     required this.card,
@@ -19,7 +19,21 @@ class ActionCardWidget extends StatelessWidget {
   final Future<void> Function(String roomId)? onJumpToRoom;
 
   @override
+  State<ActionCardWidget> createState() => _ActionCardWidgetState();
+}
+
+class _ActionCardWidgetState extends State<ActionCardWidget> {
+  bool _confirmed = false;
+
+  @override
   Widget build(BuildContext context) {
+    final card = widget.card;
+    final isConfirmType =
+        card.type == 'confirm_calendar' || card.type == 'confirm_notification';
+    final effectiveLabel = (_confirmed && isConfirmType)
+        ? '✅ 已確認寫入'
+        : card.buttonLabel;
+
     return Container(
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(12),
@@ -68,23 +82,33 @@ class ActionCardWidget extends StatelessWidget {
                 style: const TextStyle(fontSize: 12.5, color: Color(0xFFD1D5DB)),
               ),
             ),
-          if (card.buttonLabel.isNotEmpty) ...[
+          if (effectiveLabel.isNotEmpty) ...[
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(
                 style: OutlinedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                  side: BorderSide(color: const Color(0xFFFBBF24).withValues(alpha: 0.4)),
-                  foregroundColor: const Color(0xFFFDE68A),
+                  backgroundColor: (_confirmed && isConfirmType)
+                      ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                      : const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                  side: BorderSide(
+                    color: (_confirmed && isConfirmType)
+                        ? const Color(0xFF10B981).withValues(alpha: 0.45)
+                        : const Color(0xFFFBBF24).withValues(alpha: 0.4),
+                  ),
+                  foregroundColor: (_confirmed && isConfirmType)
+                      ? const Color(0xFF6EE7B7)
+                      : const Color(0xFFFDE68A),
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(9),
                   ),
                 ),
-                onPressed: () => _handleAction(context),
+                onPressed: (_confirmed && isConfirmType)
+                    ? null
+                    : () => _handleAction(context),
                 child: Text(
-                  card.buttonLabel,
+                  effectiveLabel,
                   style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -96,7 +120,47 @@ class ActionCardWidget extends StatelessWidget {
   }
 
   Future<void> _handleAction(BuildContext context) async {
+    final card = widget.card;
     switch (card.type) {
+      case 'confirm_calendar':
+        final title = (card.payload['title'] ?? card.title).toString();
+        final startIso = (card.payload['startIso'] ?? '').toString();
+        final desc = (card.payload['description'] ?? '').toString();
+        final display = (card.payload['displayTime'] ?? '').toString();
+        final start = DateTime.tryParse(startIso) ??
+            DateTime.now().add(const Duration(hours: 1));
+        final direct = await NativeActions.insertCalendarEventDirect(
+          title: title,
+          startTime: start,
+          description: desc,
+        );
+        if (direct.inserted) {
+          if (mounted) setState(() => _confirmed = true);
+          widget.onToast('📅 已寫入日曆（${direct.calendarName}）：$display');
+        } else {
+          await NativeActions.openCalendarDraft(
+            title: title,
+            startTime: start,
+            description: desc,
+          );
+          if (mounted) setState(() => _confirmed = true);
+          widget.onToast('📅 已開啟系統日曆確認畫面');
+        }
+        break;
+      case 'confirm_notification':
+        final title = (card.payload['title'] ?? card.title).toString();
+        final body = (card.payload['body'] ?? title).toString();
+        final triggerIso = (card.payload['triggerIso'] ?? '').toString();
+        final triggerTime = DateTime.tryParse(triggerIso) ??
+            DateTime.now().add(const Duration(minutes: 10));
+        final res = await NativeActions.scheduleReminder(
+          title: title,
+          body: body,
+          triggerTime: triggerTime,
+        );
+        if (mounted) setState(() => _confirmed = true);
+        widget.onToast('⏰ 已排程提醒：${res.displayTime}');
+        break;
       case 'calendar':
         final title = (card.payload['title'] ?? card.title).toString();
         final startIso = (card.payload['startIso'] ?? '').toString();
@@ -108,30 +172,30 @@ class ActionCardWidget extends StatelessWidget {
           startTime: start,
           description: desc,
         );
-        onToast('📅 已喚起 Android 日曆新增畫面');
+        widget.onToast('📅 已喚起 Android 日曆新增畫面');
         break;
       case 'profile':
       case 'tuning':
       case 'clipboard':
         final copyText = (card.payload['copyText'] ?? card.title).toString();
         await Clipboard.setData(ClipboardData(text: copyText));
-        onToast('📋 已複製至剪貼簿');
+        widget.onToast('📋 已複製至剪貼簿');
         break;
       case 'memory_hit':
         final targetRoomId = (card.payload['targetRoomId'] ?? '').toString();
         if (targetRoomId.isNotEmpty &&
             targetRoomId != 'main' &&
-            onJumpToRoom != null) {
-          await onJumpToRoom!(targetRoomId);
+            widget.onJumpToRoom != null) {
+          await widget.onJumpToRoom!(targetRoomId);
         } else {
           final copyText = (card.payload['copyText'] ?? card.title).toString();
           await Clipboard.setData(ClipboardData(text: copyText));
-          onToast('📋 已複製搜尋結果');
+          widget.onToast('📋 已複製搜尋結果');
         }
         break;
       case 'create_room':
         final name = (card.payload['roomName'] ?? card.title).toString();
-        await onCreateRoom(name);
+        await widget.onCreateRoom(name);
         break;
       case 'notification':
         final hour = (card.payload['hour'] as num?)?.toInt();
@@ -144,9 +208,9 @@ class ActionCardWidget extends StatelessWidget {
             message: title,
             skipUi: false,
           );
-          onToast('⏰ 已開啟系統「時鐘」設定真鬧鐘');
+          widget.onToast('⏰ 已開啟系統「時鐘」設定真鬧鐘');
         } else {
-          onToast('⏰ 系統通知已於 ${card.payload['time'] ?? ''} 排程');
+          widget.onToast('⏰ 系統通知已於 ${card.payload['time'] ?? ''} 排程');
         }
         break;
     }

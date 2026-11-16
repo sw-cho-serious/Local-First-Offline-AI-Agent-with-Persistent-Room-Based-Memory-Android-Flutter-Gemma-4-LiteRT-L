@@ -202,17 +202,22 @@ class GemmaLiteRtEngine implements LlmEngine {
     );
   }
 
-  String? _defaultAmbientToolForRoom(String roomId) {
-    if (roomId == 'main') return 'search_memory';
-    if (roomId.startsWith('para:archives:')) return null;
-    return 'data_write';
+  List<String> _ambientToolsForRoom(String roomId) {
+    if (roomId == 'main') {
+      return const ['search_memory', 'schedule_notification', 'create_calendar_event'];
+    }
+    if (roomId.startsWith('para:archives:')) {
+      return const [];
+    }
+    return const ['data_write', 'schedule_notification', 'create_calendar_event'];
   }
 
   @override
   Future<void> prewarmRoomSession(String roomId) {
     if (_model == null) return Future<void>.value();
-    final ambientTool = _defaultAmbientToolForRoom(roomId);
-    if (_activeRoomId == roomId && _activeChat != null && _activeToolKey == ambientTool) {
+    final ambientTools = _ambientToolsForRoom(roomId);
+    final ambientKey = ambientTools.join(',');
+    if (_activeRoomId == roomId && _activeChat != null && _activeToolKey == ambientKey) {
       return Future<void>.value();
     }
     if (_prewarmFuture != null && _prewarmRoomId == roomId) {
@@ -222,10 +227,10 @@ class GemmaLiteRtEngine implements LlmEngine {
     _prewarmRoomId = roomId;
     final future = _mutex.synchronized(() async {
       if (_model == null) return;
-      if (_activeRoomId == roomId && _activeChat != null && _activeToolKey == ambientTool) {
+      if (_activeRoomId == roomId && _activeChat != null && _activeToolKey == ambientKey) {
         return;
       }
-      await _buildChatSessionInternal(roomId: roomId, toolName: ambientTool);
+      await _buildChatSessionInternal(roomId: roomId, toolNames: ambientTools);
     });
     _prewarmFuture = future.whenComplete(() {
       if (identical(_prewarmFuture, future)) {
@@ -330,7 +335,8 @@ class GemmaLiteRtEngine implements LlmEngine {
       ..writeln()
       ..writeln('【雙軌格式提醒】')
       ..writeln('1. 對使用者回話一律維持自然短句口語，禁稱「您」、禁列 1. 2. 3. 報告體。')
-      ..writeln('2. 若呼出 data_write 工具，item_text 必須精簡具體；若查表查無參數，直接坦白說查無參數，絕對禁止編造尺寸或單重。');
+      ..writeln('2. 若呼出 data_write 工具，item_text 必須精簡具體；若查表查無參數，直接坦白說查無參數，絕對禁止編造尺寸或單重。')
+      ..writeln('3. 若使用者約定提醒或日曆時間，直接呼出 schedule_notification 或 create_calendar_event（系統會自動彈出確認卡讓使用者點選），不可在沒呼出工具的情況下口頭假裝已設好。');
 
     return buf.toString();
   }
@@ -375,7 +381,7 @@ class GemmaLiteRtEngine implements LlmEngine {
 
   Future<void> _buildChatSessionInternal({
     required String roomId,
-    required String? toolName,
+    required List<String> toolNames,
   }) async {
     final model = _model;
     if (model == null) return;
@@ -384,7 +390,7 @@ class GemmaLiteRtEngine implements LlmEngine {
 
     final systemPrompt = await _assembleSystemPrompt(roomId);
     final replay = await _loadReplayMessages(roomId);
-    final tools = toolName != null ? <Tool>[ToolRegistry.buildSchema(toolName)] : const <Tool>[];
+    final tools = toolNames.map(ToolRegistry.buildSchema).toList();
 
     final chat = await model.openChat(
       supportImage: true,
@@ -403,7 +409,7 @@ class GemmaLiteRtEngine implements LlmEngine {
 
     _activeChat = chat;
     _activeRoomId = roomId;
-    _activeToolKey = toolName;
+    _activeToolKey = toolNames.join(',');
   }
 
   @override
@@ -471,11 +477,13 @@ class GemmaLiteRtEngine implements LlmEngine {
       try {
         controller.add(const EngineStateHint(SpiritState.thinking));
 
-        final desiredTool = mountedTool?.toolName ?? _defaultAmbientToolForRoom(roomId);
+        final desiredTools =
+            mountedTool != null ? <String>[mountedTool.toolName] : _ambientToolsForRoom(roomId);
+        final desiredKey = desiredTools.join(',');
         if (_activeChat == null ||
             _activeRoomId != roomId ||
-            _activeToolKey != desiredTool) {
-          await _buildChatSessionInternal(roomId: roomId, toolName: desiredTool);
+            _activeToolKey != desiredKey) {
+          await _buildChatSessionInternal(roomId: roomId, toolNames: desiredTools);
         }
 
         final chat = _activeChat!;
@@ -506,6 +514,7 @@ class GemmaLiteRtEngine implements LlmEngine {
               toolName: call.name,
               args: call.args,
               roomId: roomId,
+              requireConfirm: mountedTool == null,
             );
             controller.add(EngineToolExecuted(
               toolPill: outcome.toolPill,

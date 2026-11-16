@@ -259,6 +259,7 @@ class ToolRegistry {
     required String toolName,
     required Map<String, dynamic> args,
     required String roomId,
+    bool requireConfirm = false,
   }) async {
     switch (toolName) {
       case 'lookup_profile':
@@ -268,9 +269,9 @@ class ToolRegistry {
       case 'data_write':
         return _runDataWrite(args, roomId);
       case 'schedule_notification':
-        return _runScheduleNotification(args);
+        return _runScheduleNotification(args, requireConfirm: requireConfirm);
       case 'create_calendar_event':
-        return _runCreateCalendar(args);
+        return _runCreateCalendar(args, requireConfirm: requireConfirm);
       case 'search_memory':
         return _runSearchMemory(args);
       case 'clipboard_tool':
@@ -461,11 +462,48 @@ class ToolRegistry {
     );
   }
 
-  Future<ToolExecutionOutcome> _runScheduleNotification(Map<String, dynamic> args) async {
+  Future<ToolExecutionOutcome> _runScheduleNotification(
+    Map<String, dynamic> args, {
+    bool requireConfirm = false,
+  }) async {
     final title = (args['title'] ?? 'KODARI 現場提醒').toString();
     final body = (args['body'] ?? title).toString();
     final rawTime = (args['trigger_iso'] ?? '').toString();
     final triggerTime = _resolveToolDateTime(rawTime, '$title $body');
+    final h = triggerTime.hour.toString().padLeft(2, '0');
+    final m = triggerTime.minute.toString().padLeft(2, '0');
+    final displayTime =
+        '${triggerTime.year}/${triggerTime.month}/${triggerTime.day} $h:$m';
+
+    if (requireConfirm) {
+      final card = ActionCardData(
+        type: 'confirm_notification',
+        badge: '⏰ 請確認是否設定提醒',
+        title: title,
+        rows: [
+          '預計時間：$displayTime',
+          if (body != title && body.isNotEmpty) '備註：$body',
+        ],
+        buttonLabel: '✅ 確認設定提醒（$displayTime）',
+        payload: {
+          'title': title,
+          'body': body,
+          'triggerIso': triggerTime.toIso8601String(),
+          'displayTime': displayTime,
+          'hour': triggerTime.hour,
+          'minute': triggerTime.minute,
+        },
+      );
+      return ToolExecutionOutcome(
+        toolResponse: {
+          'status': 'pending_confirmation',
+          'title': title,
+          'time': displayTime,
+        },
+        toolPill: '⏰ 待你確認提醒：$displayTime',
+        card: card,
+      );
+    }
 
     final res = await NativeActions.scheduleReminder(
       title: title,
@@ -630,7 +668,10 @@ class ToolRegistry {
     );
   }
 
-  Future<ToolExecutionOutcome> _runCreateCalendar(Map<String, dynamic> args) async {
+  Future<ToolExecutionOutcome> _runCreateCalendar(
+    Map<String, dynamic> args, {
+    bool requireConfirm = false,
+  }) async {
     final title = (args['title'] ?? '工作排程事件').toString();
     final desc = (args['description'] ?? '由《HAKO • KODARI》建立').toString();
     final rawStart = (args['start_iso'] ?? '').toString();
@@ -638,6 +679,34 @@ class ToolRegistry {
     final h = startTime.hour.toString().padLeft(2, '0');
     final m = startTime.minute.toString().padLeft(2, '0');
     final display = '${startTime.year}/${startTime.month}/${startTime.day} $h:$m';
+
+    if (requireConfirm) {
+      final card = ActionCardData(
+        type: 'confirm_calendar',
+        badge: '📅 請確認是否寫入日曆',
+        title: title,
+        rows: [
+          '預計時間：$display',
+          if (desc.isNotEmpty) '備註：$desc',
+        ],
+        buttonLabel: '✅ 確認寫入系統日曆（$display）',
+        payload: {
+          'title': title,
+          'startIso': startTime.toIso8601String(),
+          'description': desc,
+          'displayTime': display,
+        },
+      );
+      return ToolExecutionOutcome(
+        toolResponse: {
+          'status': 'pending_confirmation',
+          'title': title,
+          'start': display,
+        },
+        toolPill: '📅 待你確認寫入日曆：$display',
+        card: card,
+      );
+    }
 
     final direct = await NativeActions.insertCalendarEventDirect(
       title: title,
