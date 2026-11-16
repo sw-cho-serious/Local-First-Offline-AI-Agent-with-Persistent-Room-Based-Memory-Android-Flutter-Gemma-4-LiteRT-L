@@ -179,9 +179,9 @@ class _BootSplashScreenState extends State<_BootSplashScreen>
                 );
               },
               child: const SpiritAvatar(
-                colorHex: '#F59E0B',
-                state: SpiritState.thinking,
-                size: 74,
+                colorHex: '#3A4150',
+                state: SpiritState.idle,
+                size: 78,
                 isMain: true,
                 accessory: 'main',
               ),
