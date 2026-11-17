@@ -1,9 +1,23 @@
-# 🛸 HAKO × KODARI — Offline Multimodal Android Agent App
+# HAKO
+### A Local-First Offline AI Agent with Persistent Room-Based Memory
+
+🛸 **HAKO × KODARI** — Offline Multimodal Android Agent App (Flutter + Gemma 4 LiteRT-LM)
 
 [English](README.md) | [繁體中文](README.zh-TW.md)
 
 > **"One Spirit Sprite, One Dedicated Workspace."**  
 > A Local-First, offline multimodal AI Agent built with **Flutter + Gemma 4 LiteRT-LM**. Zero model-gallery menus—launch straight into a single on-device `Gemma-4-E4B-it.litertlm` engine for offline vision, PARA memory & task management, native Android actions, and serverless two-way sync via Google Apps Script.
+
+**Technical Summary**
+
+- **Local-First Architecture** — All rooms, messages, memory and hooks live in on-device SQLite (`xiaoliu.db`); cloud sync (clipboard / Google Sheet + GAS) is optional.
+- **Offline AI Agent** — Inference runs on-device with Gemma 4 E4B via LiteRT-LM; no cloud LLM is required.
+- **Persistent Room-Based Workspace** — PARA-style rooms keep their own chat history and todos across app restarts.
+- **Room-Based Context Management** — Each room rebuilds its session from its own rolling summary plus un-summarized messages, with idle / room-switch compaction.
+- **Hierarchical Memory** — Global persona & distilled long-term `MEMORY.md` → per-room rolling summary → recent messages; cross-room search from the main room.
+- **Local Tool / Hook Execution** — Single-turn `@` tools and Android native actions run locally; user-registered formula hooks are evaluated on-device.
+
+> One agent (KODARI) working across multiple rooms — not a multi-agent system.
 
 ---
 

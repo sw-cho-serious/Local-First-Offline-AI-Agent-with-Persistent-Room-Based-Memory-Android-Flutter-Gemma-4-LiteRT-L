@@ -1,9 +1,23 @@
-# 🛸 HAKO × KODARI — 離線多模態 Android Agent App
+# HAKO
+### A Local-First Offline AI Agent with Persistent Room-Based Memory
+
+🛸 **HAKO × KODARI** — 離線多模態 Android Agent App（Flutter + Gemma 4 LiteRT-LM）
 
 [English](README.md) | [繁體中文](README.zh-TW.md)
 
 > **「一顆小精靈，顧一間工作房間」**  
 > 專為現場實戰設計的 Local-First 離線多模態 AI Agent（Flutter + Gemma 4 LiteRT-LM）。拔除所有模型展示廳與多層選單，點開即直達本機單一 `Gemma-4-E4B-it.litertlm` 引擎，離線看圖、管理 PARA 記憶與待辦、呼叫原生手腳，並透過零伺服器費的 Google Apps Script 閘道實現跨裝置雙向同步。
+
+**技術摘要**
+
+- **Local-First Architecture** — 房間、對話、記憶與 hooks 全存在本機 SQLite（`xiaoliu.db`）；雲端同步（剪貼簿 / Google Sheet + GAS）為選用。
+- **Offline AI Agent** — 以 LiteRT-LM 在手機端執行 Gemma 4 E4B 推論，不需雲端 LLM。
+- **Persistent Room-Based Workspace** — PARA 房間各自保存對話紀錄與待辦，重開 App 仍在。
+- **Room-Based Context Management** — 每間房以自己的滾動摘要＋未摘要訊息重建 Session，閒置或切房時自動壓縮。
+- **Hierarchical Memory** — 全域人設與蒸餾長期記憶 `MEMORY.md` → 房間滾動摘要 → 近期訊息；主房間可跨房搜尋記憶。
+- **Local Tool / Hook Execution** — `@` 單輪工具與 Android 原生動作在本機執行；使用者註冊的公式 hooks 於端側運算。
+
+> 單一 Agent（KODARI）負責多個房間，並非 Multi-Agent 系統。
 
 ---
 
