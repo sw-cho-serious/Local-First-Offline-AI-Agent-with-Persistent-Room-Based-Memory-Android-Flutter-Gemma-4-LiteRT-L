@@ -10,7 +10,7 @@
 
 **Technical Summary**
 
-- **Local-First Architecture** — All rooms, messages, memory and hooks live in on-device SQLite (`xiaoliu.db`); cloud sync (clipboard / Google Sheet + GAS) is optional.
+- **Local-First Architecture** — All rooms, messages, memory and hooks live in on-device SQLite (`KODARI.db`); cloud sync (clipboard / Google Sheet + GAS) is optional.
 - **Offline AI Agent** — Inference runs on-device with Gemma 4 E4B via LiteRT-LM; no cloud LLM is required.
 - **Persistent Room-Based Workspace** — PARA-style rooms keep their own chat history and todos across app restarts.
 - **Room-Based Context Management** — Each room rebuilds its session from its own rolling summary plus un-summarized messages, with idle / room-switch compaction.
