@@ -10,7 +10,7 @@
 
 **技術摘要**
 
-- **Local-First Architecture** — 房間、對話、記憶與 hooks 全存在本機 SQLite（`xiaoliu.db`）；雲端同步（剪貼簿 / Google Sheet + GAS）為選用。
+- **Local-First Architecture** — 房間、對話、記憶與 hooks 全存在本機 SQLite（`KODARI.db`）；雲端同步（剪貼簿 / Google Sheet + GAS）為選用。
 - **Offline AI Agent** — 以 LiteRT-LM 在手機端執行 Gemma 4 E4B 推論，不需雲端 LLM。
 - **Persistent Room-Based Workspace** — PARA 房間各自保存對話紀錄與待辦，重開 App 仍在。
 - **Room-Based Context Management** — 每間房以自己的滾動摘要＋未摘要訊息重建 Session，閒置或切房時自動壓縮。
