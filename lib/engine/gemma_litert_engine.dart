@@ -32,10 +32,21 @@ class GemmaLiteRtEngine implements LlmEngine {
   InferenceChat? _activeChat;
   String? _activeRoomId;
   String? _activeToolKey;
+  String? _activeSessionDate;
   bool _useGpu = true;
   bool _isFallbackMode = false;
   String? _installedPath;
   bool _cancelRequested = false;
+
+  static String _dateKey(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  static String _formatNowStamp(DateTime dt) {
+    const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${_dateKey(dt)} $hh:$mm (週${weekdays[dt.weekday - 1]})';
+  }
 
   Future<void>? _prewarmFuture;
   String? _prewarmRoomId;
@@ -245,6 +256,7 @@ class GemmaLiteRtEngine implements LlmEngine {
     _activeChat = null;
     _activeRoomId = null;
     _activeToolKey = null;
+    _activeSessionDate = null;
     if (chat != null) {
       try {
         await chat.close();
@@ -410,6 +422,7 @@ class GemmaLiteRtEngine implements LlmEngine {
     _activeChat = chat;
     _activeRoomId = roomId;
     _activeToolKey = toolNames.join(',');
+    _activeSessionDate = _dateKey(DateTime.now());
   }
 
   @override
@@ -477,19 +490,23 @@ class GemmaLiteRtEngine implements LlmEngine {
       try {
         controller.add(const EngineStateHint(SpiritState.thinking));
 
+        final now = DateTime.now();
+        final todayKey = _dateKey(now);
         final desiredTools =
             mountedTool != null ? <String>[mountedTool.toolName] : _ambientToolsForRoom(roomId);
         final desiredKey = desiredTools.join(',');
         if (_activeChat == null ||
             _activeRoomId != roomId ||
-            _activeToolKey != desiredKey) {
+            _activeToolKey != desiredKey ||
+            _activeSessionDate != todayKey) {
           await _buildChatSessionInternal(roomId: roomId, toolNames: desiredTools);
         }
 
         final chat = _activeChat!;
+        final nowStamp = _formatNowStamp(now);
         final promptText = mountedTool != null
-            ? '[已手動掛載工具 ${mountedTool.toolName}，請直接調用該工具處理後用 KODARI 口吻簡短回覆] $userText'
-            : userText;
+            ? '[現在時間 $nowStamp][已手動掛載工具 ${mountedTool.toolName}，請直接調用該工具處理後用 KODARI 口吻簡短回覆] $userText'
+            : '[現在時間 $nowStamp] $userText';
 
         final message = compressedImageBytes != null
             ? Message.withImage(

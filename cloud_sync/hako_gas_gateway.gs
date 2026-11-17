@@ -61,6 +61,11 @@ function doPost(e) {
     // 2. Refresh human/AI-readable dashboard sheet for Aero/Spark handoff
     rebuildDashboardSheet_(ss);
 
+    // 2.5 Optional: Mirror active room todos to Google Tasks ('HAKO 工作待辦') if Tasks Advanced Service is enabled
+    try {
+      syncTodosToGoogleTasks_(ss);
+    } catch (_) {}
+
     // 3. Collect remote delta since clientLastSync
     const remotePayload = {
       traits: readRowsSince_(ss.getSheetByName('traits'), TABLE_SCHEMAS.traits, 'updated_at', clientLastSync),
@@ -204,3 +209,59 @@ function sheetToObjects_(sh, cols) {
   }
   return list;
 }
+
+/**
+ * 選配功能：把 HAKO 各工作房間的待辦鏡像同步到你的「Google Tasks（HAKO 工作待辦）」清單。
+ * 啟用方式：Apps Script 左側「服務 +」→ 加入「Google Tasks API」(Tasks) → 重新部署即可。
+ */
+function syncTodosToGoogleTasks_(ss) {
+  if (typeof Tasks === 'undefined') return;
+
+  const listTitle = 'HAKO 工作待辦';
+  const taskLists = Tasks.Tasklists.list().items || [];
+  let targetList = taskLists.find(function (l) { return l.title === listTitle; });
+  if (!targetList) {
+    targetList = Tasks.Tasklists.insert({ title: listTitle });
+  }
+  const listId = targetList.id;
+
+  const existing = (Tasks.Tasks.list(listId, { showCompleted: true, showHidden: true, maxResults: 100 }).items) || [];
+  const byTitle = {};
+  existing.forEach(function (t) {
+    if (t.title) byTitle[t.title] = t;
+  });
+
+  const rooms = sheetToObjects_(ss.getSheetByName('rooms'), TABLE_SCHEMAS.rooms);
+  const data = sheetToObjects_(ss.getSheetByName('data'), TABLE_SCHEMAS.data);
+  const dataByRoom = {};
+  data.forEach(function (d) {
+    if (Number(d.is_deleted || 0) === 0) dataByRoom[d.room_id] = d.value || '';
+  });
+
+  rooms.forEach(function (r) {
+    if (Number(r.is_deleted || 0) !== 0) return;
+    if (String(r.room_id || '').indexOf('para:archives:') === 0) return;
+    const rawTodo = String(dataByRoom[r.room_id] || '');
+    const lines = rawTodo.split('\n');
+    lines.forEach(function (line) {
+      const m = line.trim().match(/^-\s*\[([xXO\s])\]\s*(.+)$/);
+      if (!m) return;
+      const isDone = m[1] !== ' ';
+      const itemText = m[2].trim();
+      if (!itemText) return;
+      const taskTitle = '[' + r.title + '] ' + itemText;
+      const desiredStatus = isDone ? 'completed' : 'needsAction';
+      const cur = byTitle[taskTitle];
+      if (!cur) {
+        if (!isDone) {
+          Tasks.Tasks.insert({ title: taskTitle }, listId);
+        }
+      } else if (cur.status !== desiredStatus) {
+        cur.status = desiredStatus;
+        if (!isDone) delete cur.completed;
+        Tasks.Tasks.update(cur, listId, cur.id);
+      }
+    });
+  });
+}
+
