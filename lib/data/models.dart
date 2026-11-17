@@ -255,3 +255,44 @@ class GlobalPendingMemo {
     return starredMessages.length + todoTotal;
   }
 }
+
+class HookRecord {
+  const HookRecord({
+    required this.name,
+    required this.description,
+    required this.params,
+    required this.body,
+    required this.updatedAt,
+  });
+
+  final String name;
+  final String description;
+  final List<String> params;
+  final String body;
+  final int updatedAt;
+
+  String get paramsCsv => params.join(', ');
+
+  factory HookRecord.fromMap(Map<String, Object?> map) {
+    final rawParams = (map['params_json'] as String? ?? '[]').trim();
+    var parsed = <String>[];
+    if (rawParams.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawParams);
+        if (decoded is List) {
+          parsed = decoded
+              .map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+        }
+      } catch (_) {}
+    }
+    return HookRecord(
+      name: (map['name'] as String? ?? '').trim(),
+      description: map['description'] as String? ?? '',
+      params: parsed,
+      body: map['body'] as String? ?? '',
+      updatedAt: map['updated_at'] as int? ?? 0,
+    );
+  }
+}

@@ -11,12 +11,20 @@ class ActionCardWidget extends StatefulWidget {
     required this.onCreateRoom,
     required this.onToast,
     this.onJumpToRoom,
+    this.onOpenAnnotator,
+    this.onOpenAlbumScanner,
+    this.onOpenGpxImport,
+    this.onOpenHookManager,
   });
 
   final ActionCardData card;
   final Future<void> Function(String title) onCreateRoom;
   final void Function(String message) onToast;
   final Future<void> Function(String roomId)? onJumpToRoom;
+  final Future<void> Function(String note)? onOpenAnnotator;
+  final Future<void> Function()? onOpenAlbumScanner;
+  final Future<void> Function()? onOpenGpxImport;
+  final Future<void> Function()? onOpenHookManager;
 
   @override
   State<ActionCardWidget> createState() => _ActionCardWidgetState();
@@ -211,6 +219,53 @@ class _ActionCardWidgetState extends State<ActionCardWidget> {
           widget.onToast('⏰ 已開啟系統「時鐘」設定真鬧鐘');
         } else {
           widget.onToast('⏰ 系統通知已於 ${card.payload['time'] ?? ''} 排程');
+        }
+        break;
+      case 'location':
+        final lat = (card.payload['lat'] as num?)?.toDouble();
+        final lng = (card.payload['lng'] as num?)?.toDouble();
+        final label = (card.payload['label'] ?? card.title).toString();
+        if (lat != null && lng != null) {
+          await NativeActions.openMapLocation(lat, lng, label: label);
+          widget.onToast('🗺️ 已開啟地圖定位：$label');
+        } else {
+          final copyText = (card.payload['copyText'] ?? card.title).toString();
+          await Clipboard.setData(ClipboardData(text: copyText));
+          widget.onToast('📋 已複製位置座標');
+        }
+        break;
+      case 'gpx_import':
+        if (widget.onOpenGpxImport != null) {
+          await widget.onOpenGpxImport!();
+        }
+        break;
+      case 'share_line':
+        final text = (card.payload['text'] ?? card.payload['copyText'] ?? card.title).toString();
+        final imagePath = card.payload['imagePath']?.toString();
+        final res = await NativeActions.shareToLine(text: text, imagePath: imagePath);
+        if (!res.ok) {
+          await Clipboard.setData(ClipboardData(text: text));
+          widget.onToast('📋 系統分享未開啟，已複製文字至剪貼簿');
+        }
+        break;
+      case 'photo_annotate':
+        if (widget.onOpenAnnotator != null) {
+          final note = (card.payload['note'] ?? '').toString();
+          await widget.onOpenAnnotator!(note);
+        }
+        break;
+      case 'album_scan':
+        if (widget.onOpenAlbumScanner != null) {
+          await widget.onOpenAlbumScanner!();
+        }
+        break;
+      case 'hook':
+        if (widget.onOpenHookManager != null) {
+          await widget.onOpenHookManager!();
+        } else {
+          final copyText = (card.payload['copyText'] ?? card.title).toString();
+          await Clipboard.setData(ClipboardData(text: copyText));
+          widget.onToast('📋 已複製技能資訊');
         }
         break;
     }

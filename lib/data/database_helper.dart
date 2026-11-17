@@ -245,20 +245,19 @@ class DatabaseHelper {
       });
     }
 
-    // 2. Seed profiles (refreshable static lookup table)
-    final profileCount = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM profiles'),
-        ) ??
-        0;
-    if (profileCount == 0) {
-      final profilesList = jsonDecode(profilesJson) as List<dynamic>;
+    // 2. Seed / refresh static profiles lookup table
+    final profilesList = jsonDecode(profilesJson) as List<dynamic>;
+    if (profilesList.isNotEmpty) {
       final batch = db.batch();
+      var hasSampleProfile = false;
       for (final item in profilesList) {
         final m = item as Map<String, dynamic>;
+        final code = m['code'] as String?;
+        if (code == 'SAMPLE-01') hasSampleProfile = true;
         batch.insert(
           'profiles',
           {
-            'code': m['code'],
+            'code': code,
             'weight_per_m': (m['weight_per_m'] as num).toDouble(),
             'stock_rule': m['stock_rule'] ?? '6000mm',
             'extrudable': m['extrudable'] ?? 0,
@@ -267,29 +266,82 @@ class DatabaseHelper {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
+      if (!hasSampleProfile) {
+        batch.delete('profiles', where: 'code = ?', whereArgs: ['SAMPLE-01']);
+      }
       await batch.commit(noResult: true);
     }
 
-    // 3. Seed machine tuning table
-    final tuningCount = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM machine_tuning'),
-        ) ??
-        0;
-    if (tuningCount == 0) {
-      final tuningList = jsonDecode(tuningJson) as List<dynamic>;
+    // 3. Seed / refresh static machine tuning lookup table
+    final tuningList = jsonDecode(tuningJson) as List<dynamic>;
+    if (tuningList.isNotEmpty) {
       final batch = db.batch();
+      var hasSampleTuning = false;
       for (final item in tuningList) {
         final m = item as Map<String, dynamic>;
+        final id = m['id'] as String?;
+        if (id == 'SAMPLE-TUNE') hasSampleTuning = true;
         batch.insert(
           'machine_tuning',
           {
-            'id': m['id'],
+            'id': id,
             'keywords': m['keywords'] ?? '',
             'title': m['title'] ?? '',
             'formula': m['formula'] ?? '',
             'note': m['note'] ?? '',
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      if (!hasSampleTuning) {
+        batch.delete(
+          'machine_tuning',
+          where: 'id = ?',
+          whereArgs: ['SAMPLE-TUNE'],
+        );
+      }
+      await batch.commit(noResult: true);
+    }
+
+    // 3.5 Seed default factory hooks if empty (safe self-expanding JS/formula skills)
+    final hookCount = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM hooks'),
+        ) ??
+        0;
+    if (hookCount == 0) {
+      const defaultHooks = [
+        (
+          name: '估重109',
+          description: '依單米重(kg/m)、長度(mm)與支數，算出淨重與含 1.09 損耗備料重',
+          params: ['weight_per_m', 'length_mm', 'qty'],
+          body: 'const net = weight_per_m * (length_mm / 1000) * qty;\n'
+              'const prep = net * 1.09;\n'
+              'return "淨重 " + net.toFixed(2) + " kg ／ 含1.09損耗備料 " + prep.toFixed(2) + " kg";',
+        ),
+        (
+          name: '鋸路餘料',
+          description: '依母材定尺(mm)、單切實切(mm)與支數，計入 3.5mm 鋸路 (N+1 刀) 並判定 >=1200mm 新資產餘料',
+          params: ['stock_mm', 'cut_mm', 'qty'],
+          body: 'const kerf = 3.5 * (qty + 1);\n'
+              'const used = cut_mm * qty + kerf;\n'
+              'const rem = stock_mm - used;\n'
+              'return "總耗 " + used.toFixed(1) + "mm（鋸路N+1刀=" + kerf.toFixed(1) + "mm），餘料 " + rem.toFixed(1) + "mm（" + (rem >= 1200 ? "可入庫新資產" : (rem < 0 ? "超出定尺！" : "短餘料/廢料")) + "）";',
+        ),
+      ];
+      final batch = db.batch();
+      for (final h in defaultHooks) {
+        batch.insert(
+          'hooks',
+          {
+            'name': h.name,
+            'description': h.description,
+            'params_json': jsonEncode(h.params),
+            'body': h.body,
+            'updated_at': now,
+            'sync_status': 'pending',
+            'is_deleted': 0,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
         );
       }
       await batch.commit(noResult: true);
@@ -1140,6 +1192,81 @@ class DatabaseHelper {
       final haystack = '${r.id} ${r.keywords} ${r.title} ${r.formula} ${r.note}'.toLowerCase();
       return tokens.every((t) => haystack.contains(t.toLowerCase()));
     }).toList();
+  }
+
+  // ---------------- Self-Expanding JS Hooks CRUD ----------------
+
+  Future<List<HookRecord>> getHooks() async {
+    final db = await database;
+    final rows = await db.query(
+      'hooks',
+      where: 'is_deleted = 0',
+      orderBy: 'updated_at DESC, name ASC',
+    );
+    return rows.map(HookRecord.fromMap).toList();
+  }
+
+  Future<HookRecord?> getHook(String name) async {
+    final db = await database;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return null;
+    final exact = await db.query(
+      'hooks',
+      where: 'LOWER(name) = LOWER(?) AND is_deleted = 0',
+      whereArgs: [trimmed],
+      limit: 1,
+    );
+    if (exact.isNotEmpty) return HookRecord.fromMap(exact.first);
+
+    final fuzzy = await db.query(
+      'hooks',
+      where: '(name LIKE ? OR description LIKE ?) AND is_deleted = 0',
+      whereArgs: ['%$trimmed%', '%$trimmed%'],
+      limit: 1,
+    );
+    return fuzzy.isEmpty ? null : HookRecord.fromMap(fuzzy.first);
+  }
+
+  Future<void> upsertHook({
+    required String name,
+    required String description,
+    required List<String> params,
+    required String body,
+  }) async {
+    final db = await database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cleanParams = params
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    await db.insert(
+      'hooks',
+      {
+        'name': name.trim(),
+        'description': description.trim(),
+        'params_json': jsonEncode(cleanParams),
+        'body': body.trim(),
+        'updated_at': now,
+        'sync_status': 'pending',
+        'is_deleted': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteHook(String name) async {
+    final db = await database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.update(
+      'hooks',
+      {
+        'is_deleted': 1,
+        'updated_at': now,
+        'sync_status': 'pending',
+      },
+      where: 'LOWER(name) = LOWER(?)',
+      whereArgs: [name.trim()],
+    );
   }
 
   // ---------------- Phase 2 Cloud Sync Engine (LWW + Tombstones) ----------------

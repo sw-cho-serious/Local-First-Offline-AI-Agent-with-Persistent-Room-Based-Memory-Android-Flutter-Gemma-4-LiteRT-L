@@ -7,6 +7,7 @@ import '../../data/database_helper.dart';
 import '../../data/models.dart';
 import '../../engine/llm_engine.dart';
 import '../../sync/cloud_sync_service.dart';
+import '../../tools/hook_runtime.dart';
 import '../../tools/tts_service.dart';
 import 'spirit_avatar.dart';
 
@@ -1380,6 +1381,368 @@ Future<void> showTtsSettingsModal({
         },
       );
     },
+  );
+}
+
+/// 🧩 Self-Expanding JS/Formula Hook Manager Modal (view, test, add, delete)
+Future<void> showHookManagerModal({
+  required BuildContext context,
+  required DatabaseHelper db,
+  required VoidCallback onChanged,
+  required void Function(String msg) onToast,
+}) async {
+  await showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.72),
+    builder: (ctx) {
+      var selectedHookName = '';
+      final argsCtrl = TextEditingController();
+      var testResultText = '';
+
+      return StatefulBuilder(
+        builder: (ctx, setState) {
+          return Dialog(
+            backgroundColor: const Color(0xFF1A1E26),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+            ),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 500, maxHeight: 650),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '🧩 自我擴充技能 Hook 管理',
+                                style: TextStyle(
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFFCD34D),
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                '免重編 APK 新增公式技能（支援 P2 雙機同步）',
+                                style: TextStyle(fontSize: 11.5, color: Color(0xFF9CA3AF)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline, color: Color(0xFF34D399)),
+                          tooltip: '新增自訂技能',
+                          onPressed: () async {
+                            await _showCreateHookDialog(
+                              context: ctx,
+                              db: db,
+                              onToast: onToast,
+                            );
+                            onChanged();
+                            setState(() {});
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Color(0xFF9CA3AF)),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: FutureBuilder<List<HookRecord>>(
+                        future: db.getHooks(),
+                        builder: (context, snap) {
+                          if (!snap.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(color: Color(0xFFF59E0B)),
+                            );
+                          }
+                          final hooks = snap.data!;
+                          if (hooks.isEmpty) {
+                            return const Center(
+                              child: Text(
+                                '目前尚無技能，點右上角 ＋ 新增公式技能！',
+                                style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 13),
+                              ),
+                            );
+                          }
+                          final active = hooks.any((h) => h.name == selectedHookName)
+                              ? hooks.firstWhere((h) => h.name == selectedHookName)
+                              : hooks.first;
+
+                          return ListView(
+                            children: [
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final h in hooks)
+                                    ChoiceChip(
+                                      label: Text(h.name, style: const TextStyle(fontSize: 12)),
+                                      selected: active.name == h.name,
+                                      onSelected: (_) {
+                                        setState(() {
+                                          selectedHookName = h.name;
+                                          testResultText = '';
+                                          argsCtrl.clear();
+                                        });
+                                      },
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF111317),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            active.name,
+                                            style: const TextStyle(
+                                              color: Color(0xFFFCD34D),
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline, color: Color(0xFFFB7185), size: 18),
+                                          tooltip: '刪除技能',
+                                          onPressed: () async {
+                                            await db.deleteHook(active.name);
+                                            onChanged();
+                                            setState(() {
+                                              selectedHookName = '';
+                                              testResultText = '';
+                                            });
+                                            onToast('🗑️ 已刪除技能「${active.name}」');
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                    if (active.description.isNotEmpty)
+                                      Text(
+                                        active.description,
+                                        style: const TextStyle(color: Color(0xFFD1D5DB), fontSize: 12),
+                                      ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '參數：${active.params.isEmpty ? '（無參數）' : active.paramsCsv}',
+                                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11.5),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF0A0C0F),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        active.body,
+                                        style: const TextStyle(
+                                          fontFamily: 'monospace',
+                                          fontSize: 11.5,
+                                          color: Color(0xFF9CA3AF),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextField(
+                                            controller: argsCtrl,
+                                            style: const TextStyle(color: Colors.white, fontSize: 12.5),
+                                            decoration: InputDecoration(
+                                              hintText: active.params.isEmpty
+                                                  ? '免填參數可直接執行'
+                                                  : '依序填：${active.params.join(' ')}',
+                                              hintStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 11.5),
+                                              filled: true,
+                                              fillColor: const Color(0xFF1A1E26),
+                                              isDense: true,
+                                              border: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(8),
+                                                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF10B981),
+                                            foregroundColor: const Color(0xFF111317),
+                                          ),
+                                          onPressed: () async {
+                                            final args = HookRuntime.bindArguments(active, argsCtrl.text);
+                                            final res = await HookRuntime.execute(hook: active, args: args);
+                                            setState(() {
+                                              testResultText = res.ok
+                                                  ? '✅ [${res.engineUsed}] ${res.output}'
+                                                  : '❌ ${res.error}';
+                                            });
+                                          },
+                                          child: const Text('試跑', style: TextStyle(fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
+                                    ),
+                                    if (testResultText.isNotEmpty) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        testResultText,
+                                        style: TextStyle(
+                                          color: testResultText.startsWith('✅')
+                                              ? const Color(0xFF6EE7B7)
+                                              : const Color(0xFFFCA5A5),
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                '💡 對話框也能直接打「@技能 估重109 0.45 3200 10」或「@技能 註冊 名稱 | 說明 | a,b | a*b*1.09」',
+                                style: TextStyle(color: Color(0xFF6B7280), fontSize: 11.5),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+Future<void> _showCreateHookDialog({
+  required BuildContext context,
+  required DatabaseHelper db,
+  required void Function(String msg) onToast,
+}) async {
+  final nameCtrl = TextEditingController();
+  final descCtrl = TextEditingController();
+  final paramsCtrl = TextEditingController();
+  final bodyCtrl = TextEditingController();
+
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF1A1E26),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      title: const Text('➕ 註冊新 JS/公式技能', style: TextStyle(color: Colors.white, fontSize: 15.5)),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: '技能名稱（例：雙折料重）',
+                labelStyle: TextStyle(color: Color(0xFF9CA3AF)),
+              ),
+            ),
+            TextField(
+              controller: descCtrl,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: '用途說明（選填）',
+                labelStyle: TextStyle(color: Color(0xFF9CA3AF)),
+              ),
+            ),
+            TextField(
+              controller: paramsCtrl,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: '參數名稱（逗號分隔，例：w,len,qty）',
+                labelStyle: TextStyle(color: Color(0xFF9CA3AF)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: bodyCtrl,
+              maxLines: 4,
+              style: const TextStyle(color: Color(0xFFFDE68A), fontFamily: 'monospace', fontSize: 12),
+              decoration: const InputDecoration(
+                labelText: 'JS 公式主體（可用 const/Math/toFixed/return）',
+                hintText: 'return (w * len / 1000 * qty * 1.09).toFixed(2) + " kg";',
+                hintStyle: TextStyle(color: Color(0xFF4B5563), fontSize: 11),
+                labelStyle: TextStyle(color: Color(0xFF9CA3AF)),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('取消', style: TextStyle(color: Color(0xFF9CA3AF))),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFF59E0B),
+            foregroundColor: const Color(0xFF111317),
+          ),
+          onPressed: () async {
+            final name = nameCtrl.text.trim();
+            final rawBody = bodyCtrl.text.trim();
+            if (name.isEmpty || rawBody.isEmpty) {
+              onToast('⚠️ 請填寫技能名稱與公式');
+              return;
+            }
+            final params = paramsCtrl.text
+                .split(RegExp(r'[,，\s]+'))
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList();
+            final body = (!rawBody.contains('return ') && !rawBody.contains(';'))
+                ? 'return ($rawBody);'
+                : rawBody;
+            await db.upsertHook(
+              name: name,
+              description: descCtrl.text.trim(),
+              params: params,
+              body: body,
+            );
+            if (ctx.mounted) Navigator.of(ctx).pop();
+            onToast('🧩 已註冊技能「$name」');
+          },
+          child: const Text('儲存技能', style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      ],
+    ),
   );
 }
 

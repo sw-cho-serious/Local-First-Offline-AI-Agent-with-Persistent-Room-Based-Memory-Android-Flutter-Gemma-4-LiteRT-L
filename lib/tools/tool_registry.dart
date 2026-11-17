@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 import '../data/database_helper.dart';
 import '../data/models.dart';
+import 'hook_runtime.dart';
 import 'native_actions.dart';
 
 class AtToolOption {
@@ -84,6 +87,36 @@ class ToolRegistry {
       subtitle: '剪貼簿匯入待辦／匯出本房',
       colorHex: '#60A5FA',
     ),
+    AtToolOption(
+      atLabel: '@量測標註',
+      toolName: 'photo_annotate',
+      subtitle: '照片畫線寫尺寸 • 合成存入本房',
+      colorHex: '#F472B6',
+    ),
+    AtToolOption(
+      atLabel: '@掃相簿',
+      toolName: 'album_scan',
+      subtitle: '快篩今日/近期相簿歸檔案場',
+      colorHex: '#22D3EE',
+    ),
+    AtToolOption(
+      atLabel: '@報位置',
+      toolName: 'location_tool',
+      subtitle: '離線衛星 GPS 標點 ／ Garmin GPX',
+      colorHex: '#34D399',
+    ),
+    AtToolOption(
+      atLabel: '@轉LINE',
+      toolName: 'share_line',
+      subtitle: '打包本房進度 ＋ 現場照傳到 LINE',
+      colorHex: '#4ADE80',
+    ),
+    AtToolOption(
+      atLabel: '@技能',
+      toolName: 'hook_tool',
+      subtitle: '執行或註冊自訂 JS 公式技能',
+      colorHex: '#C084FC',
+    ),
   ];
 
   static List<AtToolOption> optionsForRoom(String roomId) {
@@ -117,6 +150,27 @@ class ToolRegistry {
       '寫待辦': '@記待辦',
       '新增待辦': '@記待辦',
       '剪貼簿': '@剪貼簿',
+      '量測標註': '@量測標註',
+      '照片標註': '@量測標註',
+      '標註尺寸': '@量測標註',
+      '量尺寸': '@量測標註',
+      '掃相簿': '@掃相簿',
+      '掃描相簿': '@掃相簿',
+      '整理相簿': '@掃相簿',
+      '報位置': '@報位置',
+      '報地址': '@報位置',
+      '記位置': '@報位置',
+      '記座標': '@報位置',
+      '抓座標': '@報位置',
+      '轉LINE': '@轉LINE',
+      '傳LINE': '@轉LINE',
+      '轉line': '@轉LINE',
+      '傳line': '@轉LINE',
+      '分享到LINE': '@轉LINE',
+      '跑技能': '@技能',
+      '用技能': '@技能',
+      '查技能': '@技能',
+      '註冊技能': '@技能 註冊',
     };
     for (final e in voiceMap.entries) {
       if (s.startsWith(e.key)) {
@@ -143,6 +197,24 @@ class ToolRegistry {
       '@搜記憶': 5,
       '@查記憶': 5,
       '@剪貼簿': 6,
+      '@量測標註': 7,
+      '@量尺寸': 7,
+      '@標註': 7,
+      '@掃相簿': 8,
+      '@相簿': 8,
+      '@報位置': 9,
+      '@報地址': 9,
+      '@記座標': 9,
+      '@GPX': 9,
+      '@gpx': 9,
+      '@轉LINE': 10,
+      '@轉line': 10,
+      '@傳LINE': 10,
+      '@傳line': 10,
+      '@分享': 10,
+      '@技能': 11,
+      '@Hook': 11,
+      '@hook': 11,
     };
 
     for (final entry in aliases.entries) {
@@ -250,6 +322,66 @@ class ToolRegistry {
             },
           },
         );
+      case 'photo_annotate':
+        return const Tool(
+          name: 'photo_annotate',
+          description: '開啟現場照片尺寸標註畫布，於圖片畫線填寫毫米尺寸並存入工作房間。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'note': {'type': 'string', 'description': '備註說明'},
+            },
+          },
+        );
+      case 'album_scan':
+        return const Tool(
+          name: 'album_scan',
+          description: '掃描手機近期拍攝照片並挑選歸檔到指定工作房間。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'range': {'type': 'string', 'description': 'today 或 recent'},
+            },
+          },
+        );
+      case 'location_tool':
+        return const Tool(
+          name: 'location_tool',
+          description: '離線抓取手機 GPS 衛星經緯度存成標點，或準備匯入 Garmin .gpx 航點。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'label': {'type': 'string', 'description': '標點名稱或備註，若為 gpx 則開啟 GPX 匯入'},
+            },
+          },
+        );
+      case 'share_line':
+        return const Tool(
+          name: 'share_line',
+          description: '整理當前工作房間待辦進度與最新現場照，喚起分享面板傳到 LINE。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'extra_note': {'type': 'string', 'description': '附帶傳給對方的補充文字'},
+            },
+          },
+        );
+      case 'hook_tool':
+        return const Tool(
+          name: 'hook_tool',
+          description: '查詢、註冊（學會新公式）或執行儲存在 SQLite 的 JS/公式擴充技能。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'action': {'type': 'string', 'enum': ['list', 'call', 'register', 'delete']},
+              'name': {'type': 'string', 'description': '技能名稱'},
+              'description': {'type': 'string', 'description': '技能說明'},
+              'params': {'type': 'string', 'description': '逗號分隔的參數名稱，例如 w,len,qty'},
+              'body': {'type': 'string', 'description': 'JS 運算主體，例如 return w*len/1000*qty*1.09;'},
+              'args_text': {'type': 'string', 'description': '呼叫技能時的參數值'},
+            },
+          },
+        );
       default:
         throw ArgumentError('Unknown tool: $toolName');
     }
@@ -276,6 +408,16 @@ class ToolRegistry {
         return _runSearchMemory(args);
       case 'clipboard_tool':
         return _runClipboardTool(args, roomId);
+      case 'photo_annotate':
+        return _runPhotoAnnotatePrompt(args);
+      case 'album_scan':
+        return _runAlbumScanPrompt(args);
+      case 'location_tool':
+        return _runLocationTool(args, roomId);
+      case 'share_line':
+        return _runShareLineTool(args, roomId);
+      case 'hook_tool':
+        return _runHookTool(args);
       default:
         return ToolExecutionOutcome(
           toolResponse: {'error': '未知工具: $toolName'},
@@ -327,6 +469,16 @@ class ToolRegistry {
         return _runSearchMemory({'query': clean});
       case 'clipboard_tool':
         return _runClipboardTool({'query': clean}, roomId);
+      case 'photo_annotate':
+        return _runPhotoAnnotatePrompt({'note': clean});
+      case 'album_scan':
+        return _runAlbumScanPrompt({'range': clean});
+      case 'location_tool':
+        return _runLocationTool({'label': clean}, roomId);
+      case 'share_line':
+        return _runShareLineTool({'extra_note': clean}, roomId);
+      case 'hook_tool':
+        return _runHookTool({'query': clean});
       default:
         return const ToolExecutionOutcome(toolResponse: {'status': 'noop'});
     }
@@ -882,5 +1034,363 @@ class ToolRegistry {
         .trim();
     if (s.isEmpty) s = raw.trim();
     return s.isEmpty ? defaultTitle : s;
+  }
+
+  Future<ToolExecutionOutcome> _runPhotoAnnotatePrompt(Map<String, dynamic> args) async {
+    final note = (args['note'] ?? '').toString().trim();
+    final card = ActionCardData(
+      type: 'photo_annotate',
+      badge: '📏 工地量測尺寸標註畫布',
+      title: note.isEmpty ? '拍照／選圖畫尺寸標註' : note,
+      rows: const [
+        '開啟相片畫線填寫毫米數字，合成高對比標註照直接存入本工作房。',
+      ],
+      buttonLabel: '📏 挑選／拍攝照片開始標註',
+      payload: {'note': note},
+    );
+    return ToolExecutionOutcome(
+      toolResponse: {'ready': true, 'note': note},
+      toolPill: '📏 photo_annotate：量測畫布就緒',
+      card: card,
+      directReply: '點下面按鈕挑一張工地照或現場拍一張，用手指畫線就能寫尺寸存檔：',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runAlbumScanPrompt(Map<String, dynamic> args) async {
+    final card = ActionCardData(
+      type: 'album_scan',
+      badge: '🖼️ 手機相簿快篩歸檔',
+      title: '掃描今日／近期拍攝照片',
+      rows: const [
+        '自動讀取縮圖並支援多選批次壓縮，快速歸檔到指定案場工作房間。',
+      ],
+      buttonLabel: '🖼️ 開啟相簿快篩歸檔面板',
+      payload: {'range': (args['range'] ?? '').toString()},
+    );
+    return ToolExecutionOutcome(
+      toolResponse: {'ready': true},
+      toolPill: '🖼️ album_scan：相簿快篩就緒',
+      card: card,
+      directReply: '點開下面相簿掃描面板，直接勾選今天拍的照片就能批次收進案場房間：',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runLocationTool(
+    Map<String, dynamic> args,
+    String roomId,
+  ) async {
+    final label = (args['label'] ?? '').toString().trim();
+    final lower = label.toLowerCase();
+    if (lower.contains('gpx') || label.contains('匯入') || label.contains('航點')) {
+      const card = ActionCardData(
+        type: 'gpx_import',
+        badge: '🧭 Garmin / GPX 航點匯入',
+        title: '從 .gpx 匯入航點進本房清單',
+        rows: [
+          '零算力解析 <wpt> / <rtept> / <trkpt> 經緯度與名稱，離線直接寫入待辦與地圖連結。',
+        ],
+        buttonLabel: '📂 選擇 .gpx 檔案匯入本房',
+        payload: {},
+      );
+      return const ToolExecutionOutcome(
+        toolResponse: {'mode': 'gpx_import'},
+        toolPill: '🧭 gpx_import：等待選擇 .gpx 檔',
+        card: card,
+        directReply: '點下面按鈕挑選從 Garmin Explore 匯出的 .gpx 檔，立刻幫你整批轉進這間房：',
+      );
+    }
+
+    final loc = await NativeActions.getCurrentLocation();
+    if (!loc.ok || loc.lat == null || loc.lng == null) {
+      return ToolExecutionOutcome(
+        toolResponse: {'ok': false, 'reason': loc.reason ?? '定位失敗'},
+        toolPill: '⚠️ location：${loc.reason ?? '定位失敗'}',
+        directReply: '目前抓不到 GPS 座標（${loc.reason ?? '請檢查定位權限與開關'}）；如果是要讀 Garmin 檔案可以輸入「@報位置 gpx」。',
+      );
+    }
+
+    final room = await _db.getRoom(roomId);
+    final tag = label.isNotEmpty ? label : (room?.title ?? '現場標點');
+    final now = DateTime.now();
+    final hhmm = '${now.month}/${now.day} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final accText = loc.accuracy != null ? '±${loc.accuracy!.round()}m' : '';
+    final todoText = '📍 [$tag] ${loc.coordsText} ($hhmm ${loc.provider ?? 'gps'} $accText) ${loc.googleMapsUrl}';
+    await _db.upsertTodoItem(roomId: roomId, itemText: todoText);
+
+    final copyText = '📍 $tag\n座標：${loc.coordsText}\n地圖：${loc.googleMapsUrl}';
+    final card = ActionCardData(
+      type: 'location',
+      badge: loc.stale ? '🛰️ 最近一次衛星座標（離線存檔）' : '🛰️ 即時 GPS 標點（已存入本房）',
+      title: '$tag • ${loc.coordsText}',
+      rows: [
+        '精準度：${loc.accuracy != null ? '±${loc.accuracy!.round()} 公尺' : '未知'} (${loc.provider ?? 'gps'})',
+        if (loc.altitude != null && loc.altitude != 0) '海拔：${loc.altitude!.toStringAsFixed(1)} m',
+        '連結：${loc.googleMapsUrl}',
+      ],
+      buttonLabel: '🗺️ 開啟 Google Maps 導航',
+      payload: {
+        'lat': loc.lat,
+        'lng': loc.lng,
+        'label': tag,
+        'copyText': copyText,
+      },
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {
+        'ok': true,
+        'lat': loc.lat,
+        'lng': loc.lng,
+        'maps_url': loc.googleMapsUrl,
+      },
+      toolPill: '📍 location：${loc.coordsText}',
+      card: card,
+      directReply: '座標「${loc.coordsText}」幫你存進「${room?.title ?? roomId}」待辦了，下次點下面就能直接導航：',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runShareLineTool(
+    Map<String, dynamic> args,
+    String roomId,
+  ) async {
+    final extra = (args['extra_note'] ?? '').toString().trim();
+    final room = await _db.getRoom(roomId);
+    final todos = await _db.getRoomTodos(roomId);
+    final msgs = await _db.getMessages(roomId);
+
+    String? latestImagePath;
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      final path = msgs[i].imagePath;
+      if (path != null && path.isNotEmpty && File(path).existsSync()) {
+        latestImagePath = path;
+        break;
+      }
+    }
+
+    final pct = todos.isEmpty ? 0 : (DatabaseHelper.calculateProgress(todos) * 100).round();
+    final buf = StringBuffer()
+      ..writeln('【${room?.title ?? roomId}】(${todos.isEmpty ? '無待辦' : '進度 $pct%'})');
+    if (extra.isNotEmpty) {
+      buf.writeln('💬 $extra');
+    }
+    if (todos.isNotEmpty) {
+      for (final t in todos.take(12)) {
+        buf.writeln('${t.done ? '☑' : '☐'} ${t.text}');
+      }
+      if (todos.length > 12) {
+        buf.writeln('…另有 ${todos.length - 12} 項');
+      }
+    } else if (msgs.isNotEmpty) {
+      final recentTexts = msgs
+          .where((m) => m.role != 'divider' && m.content.trim().isNotEmpty)
+          .toList();
+      for (final m in recentTexts.reversed.take(3).toList().reversed) {
+        final short = m.content.length > 80 ? '${m.content.substring(0, 80)}...' : m.content;
+        buf.writeln('• $short');
+      }
+    }
+
+    final shareText = buf.toString().trim();
+    final shareRes = await NativeActions.shareToLine(
+      text: shareText,
+      imagePath: latestImagePath,
+    );
+
+    final card = ActionCardData(
+      type: 'share_line',
+      badge: shareRes.withImage ? '📤 打包進度與最新現場照' : '📤 打包工作房摘要',
+      title: room?.title ?? roomId,
+      rows: [
+        if (shareRes.withImage) '🖼️ 已附帶本房最新標註圖／現場照',
+        '📋 含 ${todos.length} 條待辦紀錄（若系統無圖可再點按鈕分享）',
+      ],
+      buttonLabel: '📤 再分享一次到 LINE',
+      payload: {
+        'text': shareText,
+        'imagePath': ?latestImagePath,
+        'copyText': shareText,
+      },
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {
+        'ok': shareRes.ok,
+        'with_image': shareRes.withImage,
+        'todo_count': todos.length,
+      },
+      toolPill: shareRes.ok
+          ? (shareRes.withImage ? '📤 share_line：已帶圖喚起分享' : '📤 share_line：已喚起分享')
+          : '⚠️ share_line：${shareRes.error ?? '無法分享'}',
+      card: card,
+      directReply: shareRes.ok
+          ? (shareRes.withImage
+              ? '已經把本房進度跟最新現場照打包叫出分享選單了，選 LINE 群組直接丟出去就行。'
+              : '已經把「${room?.title ?? roomId}」的清單打包叫出分享選單了，選 LINE 就能貼過去。')
+          : '這次分享沒跳起來（${shareRes.error ?? ''}），先幫你產出卡片，點下面重試或複製文字：',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runHookTool(Map<String, dynamic> args) async {
+    final action = (args['action'] ?? '').toString().trim().toLowerCase();
+    final rawQuery = (args['query'] ?? '').toString().trim();
+
+    // 1. Register via structured args (from LLM) or "@技能 註冊 ..." text
+    if (action == 'register' ||
+        rawQuery.startsWith('註冊') ||
+        rawQuery.startsWith('新增')) {
+      HookRegisterSpec? spec;
+      if (action == 'register') {
+        final name = (args['name'] ?? '').toString().trim();
+        final desc = (args['description'] ?? '自訂公式技能').toString().trim();
+        final rawParams = (args['params'] ?? '').toString();
+        final rawBody = (args['body'] ?? '').toString().trim();
+        if (name.isNotEmpty && rawBody.isNotEmpty) {
+          final params = rawParams
+              .split(RegExp(r'[,，\s]+'))
+              .map((e) => e.trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+          final body = (!rawBody.contains('return ') && !rawBody.contains(';'))
+              ? 'return ($rawBody);'
+              : rawBody;
+          spec = HookRegisterSpec(
+            name: name,
+            description: desc,
+            params: params,
+            body: body,
+          );
+        }
+      } else {
+        spec = HookRuntime.parseRegisterCommand(rawQuery);
+      }
+
+      if (spec == null) {
+        return const ToolExecutionOutcome(
+          toolResponse: {'ok': false, 'error': '格式不符'},
+          toolPill: '⚠️ hook：註冊格式說明',
+          directReply: '註冊技能格式：\n`@技能 註冊 技能名 | 說明 | 參數1,參數2 | 公式`\n例：`@技能 註冊 折彎餘量 | 不鏽鋼扣板 | w,t | return w - t * 1.6;`',
+        );
+      }
+
+      await _db.upsertHook(
+        name: spec.name,
+        description: spec.description,
+        params: spec.params,
+        body: spec.body,
+      );
+
+      final card = ActionCardData(
+        type: 'hook',
+        badge: '🧩 已學會新技能 (SQLite + 可同步)',
+        title: spec.name,
+        rows: [
+          '說明：${spec.description}',
+          '參數：${spec.params.isEmpty ? '（無）' : spec.params.join(', ')}',
+          '公式：${spec.body}',
+        ],
+        buttonLabel: '🧩 開啟技能管理面板',
+        payload: {'copyText': '${spec.name}: ${spec.body}'},
+      );
+
+      return ToolExecutionOutcome(
+        toolResponse: {'ok': true, 'registered': spec.name},
+        toolPill: '🧩 hook_register：已記住「${spec.name}」',
+        card: card,
+        directReply: '學會了！「${spec.name}」已經存進技能庫，下次打「@技能 ${spec.name} ${spec.params.join(' ')}」就能秒算。',
+      );
+    }
+
+    // 2. Delete skill
+    if (action == 'delete' || rawQuery.startsWith('刪除 ')) {
+      final target = action == 'delete'
+          ? (args['name'] ?? '').toString().trim()
+          : rawQuery.substring(3).trim();
+      if (target.isEmpty) {
+        return const ToolExecutionOutcome(
+          toolResponse: {'ok': false},
+          directReply: '要刪哪一個技能？打「@技能 刪除 名稱」或開技能面板點垃圾桶。',
+        );
+      }
+      await _db.deleteHook(target);
+      return ToolExecutionOutcome(
+        toolResponse: {'ok': true, 'deleted': target},
+        toolPill: '🗑️ hook_delete：已刪除 $target',
+        directReply: '好，技能「$target」已經刪掉了。',
+      );
+    }
+
+    // 3. List all hooks
+    if (action == 'list' ||
+        rawQuery.isEmpty ||
+        rawQuery == '列表' ||
+        rawQuery.toLowerCase() == 'list') {
+      final hooks = await _db.getHooks();
+      final card = ActionCardData(
+        type: 'hook',
+        badge: '🧩 已註冊技能庫（共 ${hooks.length} 個）',
+        title: hooks.isEmpty ? '目前尚無自訂技能' : '直接打「@技能 名稱 參數...」即可執行',
+        rows: [
+          for (final h in hooks.take(6))
+            '• ${h.name} (${h.params.join(' ')}) — ${h.description}',
+        ],
+        buttonLabel: '🧩 開啟技能 Hook 管理面板',
+        payload: {'copyText': hooks.map((h) => '${h.name}: ${h.description}').join('\n')},
+      );
+      return ToolExecutionOutcome(
+        toolResponse: {'count': hooks.length, 'hooks': hooks.map((h) => h.name).toList()},
+        toolPill: '🧩 hook_list：共 ${hooks.length} 個技能',
+        card: card,
+        directReply: hooks.isEmpty
+            ? '技能庫還是空的，點下面按鈕或用「@技能 註冊 ...」幫我裝新技能！'
+            : '目前這台手機有 ${hooks.length} 個可用技能，點卡片可以測試或新增：',
+      );
+    }
+
+    // 4. Call a specific hook
+    var hookName = (args['name'] ?? '').toString().trim();
+    var argsText = (args['args_text'] ?? '').toString().trim();
+    if (hookName.isEmpty && rawQuery.isNotEmpty) {
+      final parts = rawQuery.split(RegExp(r'\s+'));
+      hookName = parts.first;
+      argsText = parts.skip(1).join(' ');
+    }
+
+    final hook = await _db.getHook(hookName);
+    if (hook == null) {
+      return ToolExecutionOutcome(
+        toolResponse: {'ok': false, 'error': '找不到技能 $hookName'},
+        toolPill: '⚠️ hook_call：查無「$hookName」',
+        directReply: '技能庫裡找不到「$hookName」，打 `@技能` 看目前有哪些技能。',
+      );
+    }
+
+    final boundArgs = HookRuntime.bindArguments(hook, argsText);
+    final res = await HookRuntime.execute(hook: hook, args: boundArgs);
+    if (!res.ok) {
+      return ToolExecutionOutcome(
+        toolResponse: {'ok': false, 'error': res.error},
+        toolPill: '⚠️ ${hook.name}：執行缺參數／錯誤',
+        directReply: '跑「${hook.name}」差一點：${res.error}',
+      );
+    }
+
+    final card = ActionCardData(
+      type: 'profile',
+      badge: '🧩 技能運算結果 (${res.engineUsed})',
+      title: '${hook.name} ➔ ${res.output}',
+      rows: [
+        '輸入參數：${boundArgs.entries.map((e) => '${e.key}=${e.value}').join(' / ')}',
+        if (hook.description.isNotEmpty) '用途：${hook.description}',
+      ],
+      buttonLabel: '📋 複製計算結果',
+      payload: {'copyText': '${hook.name}: ${res.output}'},
+    );
+
+    return ToolExecutionOutcome(
+      toolResponse: {'ok': true, 'name': hook.name, 'output': res.output},
+      toolPill: '🧩 ${hook.name}：${res.output}',
+      card: card,
+      directReply: '${hook.name} 算出來了：${res.output}',
+    );
   }
 }

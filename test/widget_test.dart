@@ -8,6 +8,8 @@ import 'package:xiaoliu/core/async_mutex.dart';
 import 'package:xiaoliu/core/image_compressor.dart';
 import 'package:xiaoliu/core/token_estimator.dart';
 import 'package:xiaoliu/data/database_helper.dart';
+import 'package:xiaoliu/tools/gpx_parser.dart';
+import 'package:xiaoliu/tools/hook_runtime.dart';
 import 'package:xiaoliu/tools/tool_registry.dart';
 
 void main() {
@@ -364,5 +366,129 @@ void main() {
         .where((l) => l.startsWith('- '))
         .toList();
     expect(memLines.length, 20);
+  });
+
+  test('Upgrades example profiles and tuning tables to full local seeds cleanly', () async {
+    final upgradeDb = DatabaseHelper.forTesting(
+      databaseFactoryOverride: databaseFactoryFfi,
+      dbPathOverride: inMemoryDatabasePath,
+    );
+    try {
+      final exPersona = File('assets/seeds/persona_seed.example.json').readAsStringSync();
+      final exProfiles = File('assets/seeds/profiles.example.json').readAsStringSync();
+      final exTuning = File('assets/seeds/machine_tuning.example.json').readAsStringSync();
+
+      await upgradeDb.seedFromStrings(
+        personaJson: exPersona,
+        profilesJson: exProfiles,
+        tuningJson: exTuning,
+      );
+      expect(await upgradeDb.lookupProfiles('SAMPLE-01'), isNotEmpty);
+
+      final localProfiles = File('assets/seeds/profiles.local.json').existsSync()
+          ? File('assets/seeds/profiles.local.json').readAsStringSync()
+          : '[{"code":"093Z","weight_per_m":0.28,"stock_rule":"6400mm","extrudable":1,"note":""}]';
+      final localTuning = File('assets/seeds/machine_tuning.local.json').existsSync()
+          ? File('assets/seeds/machine_tuning.local.json').readAsStringSync()
+          : '[{"id":"TUNE-REAL","keywords":"調機","title":"實務調機","formula":"OK","note":""}]';
+
+      await upgradeDb.seedFromStrings(
+        personaJson: exPersona,
+        profilesJson: localProfiles,
+        tuningJson: localTuning,
+      );
+
+      expect(await upgradeDb.lookupProfiles('SAMPLE-01'), isEmpty);
+      expect(await upgradeDb.lookupProfiles('093Z'), isNotEmpty);
+      expect(await upgradeDb.lookupMachineTuning('SAMPLE-TUNE'), isEmpty);
+    } finally {
+      await upgradeDb.close();
+    }
+  });
+
+  test('HookRuntime executes seeded skills and custom registered formulas cleanly', () async {
+    final hooks = await db.getHooks();
+    expect(hooks.any((h) => h.name == '估重109'), isTrue);
+    expect(hooks.any((h) => h.name == '鋸路餘料'), isTrue);
+
+    final weightRes = await registry.executeTool(
+      toolName: 'hook_tool',
+      args: {'query': '估重109 0.5 2000 10'},
+      roomId: 'main',
+    );
+    expect(weightRes.toolResponse['ok'], isTrue);
+    expect(weightRes.toolResponse['output'], contains('10.00 kg'));
+    expect(weightRes.toolResponse['output'], contains('10.90 kg'));
+
+    final kerfRes = await registry.executeTool(
+      toolName: 'hook_tool',
+      args: {'query': '鋸路餘料 6000 1500 3'},
+      roomId: 'main',
+    );
+    expect(kerfRes.toolResponse['ok'], isTrue);
+    expect(kerfRes.toolResponse['output'], contains('1486.0mm'));
+    expect(kerfRes.toolResponse['output'], contains('可入庫新資產'));
+
+    // Register a new formula dynamically via @技能 command and invoke it
+    final regRes = await registry.executeTool(
+      toolName: 'hook_tool',
+      args: {'query': '註冊 孔距檢查 | 欄杆孔數 | span,holes | (span / (holes - 1)).toFixed(1) + "mm"'},
+      roomId: 'main',
+    );
+    expect(regRes.toolResponse['registered'], '孔距檢查');
+
+    final callCustom = await registry.executeTool(
+      toolName: 'hook_tool',
+      args: {'query': '孔距檢查 1000 11'},
+      roomId: 'main',
+    );
+    expect(callCustom.toolResponse['output'], '100.0mm');
+
+    // Pure unit check on HookRuntime.parseRegisterCommand shorthand
+    final shortSpec = HookRuntime.parseRegisterCommand('註冊 倍數 | a,b | a * b * 2');
+    expect(shortSpec, isNotNull);
+    expect(shortSpec!.params, ['a', 'b']);
+  });
+
+  test('GpxParser extracts Garmin waypoints, routes, and tracks with metadata', () {
+    const sampleGpx = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Garmin Explore">
+  <wpt lat="23.711234" lon="120.543210">
+    <ele>42.5</ele>
+    <time>2026-11-16T07:30:00Z</time>
+    <name><![CDATA[斗六基地]]></name>
+    <cmt>出發點</cmt>
+  </wpt>
+  <rtept lat="23.512345" lon="120.112233">
+    <name>外傘頂洲暗礁</name>
+    <desc>流溝咬況好</desc>
+  </rtept>
+  <trkpt lat="23.512345" lon="120.112233" />
+  <trkpt lat="23.520000" lon="120.120000" />
+</gpx>
+''';
+    final points = GpxParser.parse(sampleGpx);
+    expect(points.length, 3);
+    expect(points[0].name, '斗六基地');
+    expect(points[0].elevation, closeTo(42.5, 0.01));
+    expect(points[0].note, '出發點');
+    expect(points[1].name, '外傘頂洲暗礁');
+    expect(points[1].googleMapsUrl, 'https://maps.google.com/?q=23.512345,120.112233');
+    expect(points[2].kind, 'trkpt');
+  });
+
+  test('P3 @ tools match aliases and voice commands cleanly', () {
+    expect(ToolRegistry.matchLeadingAtTool('@量測標註 一樓大門')?.option.toolName, 'photo_annotate');
+    expect(ToolRegistry.matchLeadingAtTool('@掃相簿')?.option.toolName, 'album_scan');
+    expect(ToolRegistry.matchLeadingAtTool('@報位置 暗礁點')?.option.toolName, 'location_tool');
+    expect(ToolRegistry.matchLeadingAtTool('@轉LINE 給阿弟')?.option.toolName, 'share_line');
+    expect(ToolRegistry.matchLeadingAtTool('@技能 估重109')?.option.toolName, 'hook_tool');
+
+    expect(ToolRegistry.normalizeSpokenCommand('可達 報位置 港口南堤'), '@報位置 港口南堤');
+    expect(ToolRegistry.normalizeSpokenCommand('傳LINE'), '@轉LINE');
+    expect(ToolRegistry.normalizeSpokenCommand('量測標註 二樓窗框'), '@量測標註 二樓窗框');
+    expect(ToolRegistry.normalizeSpokenCommand('掃相簿'), '@掃相簿');
+    expect(ToolRegistry.normalizeSpokenCommand('跑技能 估重109'), '@技能 估重109');
   });
 }

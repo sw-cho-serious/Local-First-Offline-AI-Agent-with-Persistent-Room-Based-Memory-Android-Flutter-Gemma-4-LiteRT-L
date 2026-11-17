@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -11,11 +12,14 @@ import '../../data/database_helper.dart';
 import '../../data/models.dart';
 import '../../engine/llm_engine.dart';
 import '../../sync/cloud_sync_service.dart';
+import '../../tools/gpx_parser.dart';
 import '../../tools/native_actions.dart';
 import '../../tools/tool_registry.dart';
 import '../../tools/tts_service.dart';
 import '../widgets/action_card_widget.dart';
+import '../widgets/album_scanner_sheet.dart';
 import '../widgets/modals.dart';
+import '../widgets/photo_annotator_dialog.dart';
 import '../widgets/spirit_avatar.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -389,12 +393,220 @@ class _HomeScreenState extends State<HomeScreen> {
                     _pickPhoto(ImageSource.gallery);
                   },
                 ),
+                const Divider(color: Color(0x1AFFFFFF)),
+                ListTile(
+                  leading: const Text('📏', style: TextStyle(fontSize: 20)),
+                  title: const Text('拍照並直接畫線標尺寸', style: TextStyle(color: Color(0xFFFCD34D))),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    unawaited(_annotatePhoto(source: ImageSource.camera));
+                  },
+                ),
+                ListTile(
+                  leading: const Text('📐', style: TextStyle(fontSize: 20)),
+                  title: const Text('選圖畫線標尺寸', style: TextStyle(color: Color(0xFFF472B6))),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    unawaited(_annotatePhoto(source: ImageSource.gallery));
+                  },
+                ),
+                ListTile(
+                  leading: const Text('🖼️', style: TextStyle(fontSize: 20)),
+                  title: const Text('掃描近期相簿（多張快篩歸檔）', style: TextStyle(color: Color(0xFF22D3EE))),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    unawaited(_openAlbumScanner());
+                  },
+                ),
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _saveAnnotatedPhotoResult(
+    AnnotatedPhotoResult result,
+    String targetRoomId,
+  ) async {
+    final labelsStr = result.labels.isNotEmpty ? result.labels.join('、') : '已畫線標註';
+    final contentBuf = StringBuffer('📏 量測標註：$labelsStr');
+    if (result.note.isNotEmpty) {
+      contentBuf.write('\n備註：${result.note}');
+    }
+    final summaryLine = '📏 [$labelsStr]${result.note.isNotEmpty ? ' ${result.note}' : ''}';
+
+    await widget.db.insertMessage(
+      roomId: targetRoomId,
+      role: 'user',
+      content: contentBuf.toString(),
+      imagePath: result.savedPath,
+      toolPill: '📏 量測標註 (${result.width}×${result.height})',
+    );
+    await widget.db.upsertTodoItem(roomId: targetRoomId, itemText: summaryLine);
+    widget.syncService.scheduleDebouncedPush();
+    await _loadRoomContent(_currentRoomId);
+    _showToast('📏 標註照片已合成存入「${_rooms.firstWhere((r) => r.roomId == targetRoomId, orElse: () => _rooms.first).title}」');
+  }
+
+  Future<void> _annotatePhoto({
+    String? existingPath,
+    ImageSource? source,
+    String initialNote = '',
+  }) async {
+    String? sourcePath = existingPath;
+    if (sourcePath == null) {
+      var chosenSource = source;
+      if (chosenSource == null && mounted) {
+        chosenSource = await showDialog<ImageSource>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1A1E26),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+            ),
+            title: const Text('📏 選擇要標註尺寸的照片來源', style: TextStyle(color: Colors.white, fontSize: 15)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.camera_alt, color: Color(0xFFF59E0B)),
+                  title: const Text('現場拍照並標註', style: TextStyle(color: Colors.white)),
+                  onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library, color: Color(0xFF38BDF8)),
+                  title: const Text('從相簿選圖標註', style: TextStyle(color: Colors.white)),
+                  onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      if (chosenSource == null) return;
+      if (chosenSource == ImageSource.camera) {
+        final granted = await NativeActions.ensureCameraPermission();
+        if (!granted) {
+          _showToast('📷 請允許相機權限後再拍照');
+          return;
+        }
+      }
+      final picked = await _picker.pickImage(
+        source: chosenSource,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 90,
+      );
+      if (picked == null) return;
+      sourcePath = picked.path;
+    }
+
+    if (!mounted) return;
+    final result = await showPhotoAnnotatorDialog(
+      context: context,
+      imagePath: sourcePath,
+      initialNote: initialNote,
+    );
+    if (result == null || !mounted) return;
+    await _saveAnnotatedPhotoResult(result, _currentRoomId);
+  }
+
+  Future<void> _openAlbumScanner() async {
+    await showAlbumScannerSheet(
+      context: context,
+      db: widget.db,
+      currentRoomId: _currentRoomId,
+      onToast: _showToast,
+      onAnnotatedArchive: _saveAnnotatedPhotoResult,
+      onBatchArchive: ({required targetRoomId, required items}) async {
+        for (final item in items) {
+          await widget.db.insertMessage(
+            roomId: targetRoomId,
+            role: 'user',
+            content: item.caption,
+            imagePath: item.compressed.savedPath,
+            toolPill: '🖼️ 相簿批次歸檔',
+          );
+        }
+        await widget.db.upsertTodoItem(
+          roomId: targetRoomId,
+          itemText: items.first.caption,
+        );
+        widget.syncService.scheduleDebouncedPush();
+        await _loadRoomContent(_currentRoomId);
+        final targetTitle = _rooms
+            .firstWhere((r) => r.roomId == targetRoomId, orElse: () => _rooms.first)
+            .title;
+        _showToast('🖼️ 已將 ${items.length} 張相簿照片壓縮歸檔至「$targetTitle」');
+      },
+    );
+  }
+
+  Future<void> _importGpxFile() async {
+    try {
+      final picked = await FilePicker.pickFile(
+        dialogTitle: '選取 Garmin .gpx 航點檔',
+        type: FileType.any,
+      );
+      final filePath = picked?.path;
+      if (filePath == null) return;
+
+      final xml = await File(filePath).readAsString();
+      final points = GpxParser.parse(xml);
+      if (points.isEmpty) {
+        _showToast('⚠️ 這份檔案裡沒有解析到 GPX 航點（請確認為 .gpx 檔）');
+        return;
+      }
+
+      const maxTodos = 25;
+      final savedList = points.take(maxTodos).toList();
+      for (final wp in savedList) {
+        final eleStr = wp.elevation != null ? ' 海拔${wp.elevation!.round()}m' : '';
+        final noteStr = wp.note.isNotEmpty ? ' (${wp.note})' : '';
+        await widget.db.upsertTodoItem(
+          roomId: _currentRoomId,
+          itemText: '📍 [${wp.name}] ${wp.coordsText}$eleStr$noteStr ${wp.googleMapsUrl}',
+        );
+      }
+
+      final first = points.first;
+      final card = ActionCardData(
+        type: 'location',
+        badge: '🧭 Garmin GPX 匯入（共 ${points.length} 點）',
+        title: '代表航點：${first.name} (${first.coordsText})',
+        rows: [
+          for (final wp in points.take(5))
+            '• ${wp.name}：${wp.coordsText}${wp.note.isNotEmpty ? ' · ${wp.note}' : ''}',
+          if (points.length > 5) '…其餘已一併存入本房待辦清單',
+        ],
+        buttonLabel: '🗺️ 開啟第一個航點導航',
+        payload: {
+          'lat': first.lat,
+          'lng': first.lng,
+          'label': first.name,
+          'copyText': points
+              .take(15)
+              .map((p) => '${p.name}: ${p.coordsText} ${p.googleMapsUrl}')
+              .join('\n'),
+        },
+      );
+
+      await widget.db.insertMessage(
+        roomId: _currentRoomId,
+        role: 'model',
+        content: '已經從 Garmin `.gpx` 離線解析並匯入 ${points.length} 個航點進這間房的待辦清單：',
+        toolPill: '🧭 GPX 匯入：${points.length} 個航點',
+        cardJson: card.toJsonString(),
+      );
+      widget.syncService.scheduleDebouncedPush();
+      await _loadRoomContent(_currentRoomId);
+      _showToast('🧭 已匯入 ${points.length} 個 GPX 航點');
+    } catch (e) {
+      _showToast('❌ GPX 匯入失敗：$e');
+    }
   }
 
   Future<void> _startVoiceInput() async {
@@ -429,6 +641,46 @@ class _HomeScreenState extends State<HomeScreen> {
     var text = _inputController.text.trim();
     final image = _pendingImage;
     final usedTool = _mountedTool;
+    if (text.isEmpty && image == null && usedTool == null) return;
+
+    // Intercept interactive P3 tools so tapping Send launches native UI right away.
+    final leadingMatch =
+        usedTool == null ? ToolRegistry.matchLeadingAtTool(text) : null;
+    final activeOpt = usedTool ?? leadingMatch?.option;
+    final cleanArg = leadingMatch?.cleanText ?? text;
+    if (activeOpt != null) {
+      if (activeOpt.toolName == 'photo_annotate') {
+        _inputController.clear();
+        final imgPath = image?.savedPath;
+        setState(() {
+          _pendingImage = null;
+          _atMenuVisible = false;
+          if (!_isToolPinned) _mountedTool = null;
+        });
+        await _annotatePhoto(existingPath: imgPath, initialNote: cleanArg);
+        return;
+      }
+      if (activeOpt.toolName == 'album_scan') {
+        _inputController.clear();
+        setState(() {
+          _atMenuVisible = false;
+          if (!_isToolPinned) _mountedTool = null;
+        });
+        await _openAlbumScanner();
+        return;
+      }
+      if (activeOpt.toolName == 'location_tool' &&
+          (cleanArg.toLowerCase().contains('gpx') || cleanArg.contains('匯入'))) {
+        _inputController.clear();
+        setState(() {
+          _atMenuVisible = false;
+          if (!_isToolPinned) _mountedTool = null;
+        });
+        await _importGpxFile();
+        return;
+      }
+    }
+
     if (text.isEmpty && image == null) return;
     _sendingLock = true;
     try {
@@ -632,6 +884,38 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                 ],
+                  if (msg.imagePath != null &&
+                      msg.imagePath!.isNotEmpty &&
+                      File(msg.imagePath!).existsSync()) ...[
+                    const SizedBox(height: 8),
+                    ListTile(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      tileColor: const Color(0xFFF472B6).withValues(alpha: 0.12),
+                      leading: const Text('📏', style: TextStyle(fontSize: 18)),
+                      title: const Text('在此照片上畫線標尺寸', style: TextStyle(color: Color(0xFFF9A8D4), fontSize: 14)),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        unawaited(_annotatePhoto(existingPath: msg.imagePath!));
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  ListTile(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    tileColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                    leading: const Text('📤', style: TextStyle(fontSize: 18)),
+                    title: const Text('轉傳到 LINE／系統分享（含圖片）', style: TextStyle(color: Color(0xFF6EE7B7), fontSize: 14)),
+                    onTap: () async {
+                      Navigator.of(ctx).pop();
+                      final res = await NativeActions.shareToLine(
+                        text: msg.content,
+                        imagePath: msg.imagePath,
+                      );
+                      if (!res.ok) {
+                        _showToast('⚠️ 無法開啟系統分享：${res.error ?? ''}');
+                      }
+                    },
+                  ),
                 const SizedBox(height: 8),
                 ListTile(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -748,6 +1032,39 @@ class _HomeScreenState extends State<HomeScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: Image.file(File(path), fit: BoxFit.contain),
+              ),
+            ),
+            Positioned(
+              left: 8,
+              top: 8,
+              child: Row(
+                children: [
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black87,
+                      foregroundColor: const Color(0xFFFCD34D),
+                    ),
+                    icon: const Icon(Icons.straighten, size: 17),
+                    label: const Text('標註尺寸', style: TextStyle(fontSize: 12.5)),
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      unawaited(_annotatePhoto(existingPath: path));
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black87,
+                      foregroundColor: const Color(0xFF6EE7B7),
+                    ),
+                    icon: const Icon(Icons.share, size: 17),
+                    label: const Text('傳LINE', style: TextStyle(fontSize: 12.5)),
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      unawaited(NativeActions.shareToLine(text: '', imagePath: path));
+                    },
+                  ),
+                ],
               ),
             ),
             Positioned(
@@ -1314,6 +1631,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     onToast: _showToast,
                   );
                   break;
+                case 'hooks':
+                  await showHookManagerModal(
+                    context: context,
+                    db: widget.db,
+                    onChanged: () => widget.syncService.scheduleDebouncedPush(),
+                    onToast: _showToast,
+                  );
+                  break;
+                case 'gpx_import':
+                  await _importGpxFile();
+                  break;
                 case 'settings':
                   await showModelSettingsModal(
                     context: context,
@@ -1326,6 +1654,8 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             itemBuilder: (ctx) => [
               const PopupMenuItem(value: 'lookup', child: Text('🔍 離線快查（鋁料／調機）', style: TextStyle(color: Color(0xFFFCD34D), fontSize: 13))),
+              const PopupMenuItem(value: 'hooks', child: Text('🧩 技能 Hook 擴充管理', style: TextStyle(color: Color(0xFFC084FC), fontSize: 13))),
+              const PopupMenuItem(value: 'gpx_import', child: Text('🧭 匯入 Garmin .gpx 航點', style: TextStyle(color: Color(0xFF34D399), fontSize: 13))),
               const PopupMenuItem(value: 'new_topic', child: Text('✂️ 開始新話題（不刪歷史）', style: TextStyle(color: Colors.white, fontSize: 13))),
               const PopupMenuItem(value: 'new_room', child: Text('➕ 建立新工作房間', style: TextStyle(color: Colors.white, fontSize: 13))),
               if (!room.isMain && !room.isArchived)
@@ -1708,6 +2038,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                   card: card,
                                   onToast: _showToast,
                                   onJumpToRoom: _switchRoom,
+                                  onOpenAnnotator: (note) => _annotatePhoto(initialNote: note),
+                                  onOpenAlbumScanner: _openAlbumScanner,
+                                  onOpenGpxImport: _importGpxFile,
+                                  onOpenHookManager: () => showHookManagerModal(
+                                    context: context,
+                                    db: widget.db,
+                                    onChanged: () => widget.syncService.scheduleDebouncedPush(),
+                                    onToast: _showToast,
+                                  ),
                                   onCreateRoom: (name) async {
                                     final created = await showCreateRoomDialog(
                                       context: context,
@@ -1809,32 +2148,47 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 4),
-          for (final opt in ToolRegistry.optionsForRoom(_currentRoomId))
-            InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: () => _selectAtTool(opt, pin: false),
-              onLongPress: () => _selectAtTool(opt, pin: true),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      opt.atLabel,
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600,
-                        color: parseHexColor(opt.colorHex),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 270),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final opt in ToolRegistry.optionsForRoom(_currentRoomId))
+                    InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () => _selectAtTool(opt, pin: false),
+                      onLongPress: () => _selectAtTool(opt, pin: true),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              opt.atLabel,
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: parseHexColor(opt.colorHex),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                opt.subtitle,
+                                textAlign: TextAlign.right,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    Text(
-                      opt.subtitle,
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                    ),
-                  ],
-                ),
+                ],
               ),
             ),
+          ),
         ],
       ),
     );
