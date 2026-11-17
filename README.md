@@ -112,8 +112,8 @@ cloud_sync/
 
 ### 2. Clone & Configure Local Seeds (Optional)
 ```bash
-git clone https://github.com/sw-cho-serious/hako-offline-agent.git
-cd hako-offline-agent
+git clone https://github.com/sw-cho-serious/Local-First-Offline-AI-Agent-with-Persistent-Room-Based-Memory-Android-Flutter-Gemma-4-LiteRT-L.git
+cd Local-First-Offline-AI-Agent-with-Persistent-Room-Based-Memory-Android-Flutter-Gemma-4-LiteRT-L
 flutter pub get
 ```
 To customize your persona or offline lookup tables, copy `assets/seeds/*.example.json` to `*.local.json` (ignored by `.gitignore`):
@@ -142,5 +142,5 @@ flutter run
 - [ ] **Phase 3 (PRs Welcome!)**:
   - Direct PCM-to-WAV audio input into Gemma 4 (no external STT needed)
   - Lightweight floating bubble for on-screen capture into rooms
-  - Activate the `hooks` table with `flutter_js` hot-updatable skills
+  - [x] `hooks` table activated: user-registered formula hooks via `@技能`, evaluated on-device (pure-Dart evaluator; `flutter_js` not used)
   - iOS support & broader GPU/NPU backend tuning

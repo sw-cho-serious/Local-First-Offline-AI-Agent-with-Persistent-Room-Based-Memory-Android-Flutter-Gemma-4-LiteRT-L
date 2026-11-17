@@ -112,8 +112,8 @@ cloud_sync/
 
 ### 2. 安裝依賴與準備本機設定檔（選填）
 ```bash
-git clone https://github.com/sw-cho-serious/hako-offline-agent.git
-cd hako-offline-agent
+git clone https://github.com/sw-cho-serious/Local-First-Offline-AI-Agent-with-Persistent-Room-Based-Memory-Android-Flutter-Gemma-4-LiteRT-L.git
+cd Local-First-Offline-AI-Agent-with-Persistent-Room-Based-Memory-Android-Flutter-Gemma-4-LiteRT-L
 flutter pub get
 ```
 若要自訂個人靈魂人設或離線查表資料，可將 `assets/seeds/*.example.json` 複製並重新命名為 `*.local.json`（已預設列入 `.gitignore`，不會被推上公開倉庫）：
@@ -142,5 +142,5 @@ flutter run
 - [ ] **Phase 3（歡迎 PR 貢獻）**：
   - 原生 PCM→WAV 語音直通 Gemma 4
   - 輕量螢幕懸浮球（讀取當前畫面快速建檔）
-  - 啟用 `hooks` 表 ＋ `flutter_js` 動態熱更新技能沙盒
+  - [x] 已啟用 `hooks` 表：透過 `@技能` 註冊自訂公式技能，於端側運算（pure-Dart 求值器，未使用 `flutter_js`）
   - iOS / 更多 GPU / NPU Backend 自動適配優化
