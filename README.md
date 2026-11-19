@@ -41,6 +41,15 @@
    - Unified `xiaoliu.db` (`traits` / `rooms` / `data` / `messages` / `hooks`) with `updated_at`, `sync_status`, and soft-delete (`is_deleted`) fields ready for conflict-free sync.
    - Supports **Clipboard Lightning Handoff** (JSON export/import) and **Google Sheet + GAS Two-Way Sync** (with an auto-generated live dashboard sheet).
 
+6. **Desktop 6-Slot Customizable Ghost Wheel (60° symmetric hexagon)**
+   - Six freely swappable slots with auto-swap on collision, backed by 14 modular actions (`GhostActionRegistry`) and persisted by `GhostLocalStore`.
+   - **In-place execution without opening the app** (`GhostInPlaceExecutors`): flashlight, GPS location report, clipboard-to-todo, in-place voice note, latest-photo evidence capture, today's-todos floating card (direct SQLite read/write), next-schedule countdown, Open-Meteo local weather & wind, quick timer, floating calculator (with mm ↔ Taiwan-chi conversion), cloud dashboard refresh.
+7. **V2 Engine & Routers**
+   - [`FastPathRouter`](lib/tools/fast_path_router.dart) (zero-compute fast path), [`RoutineScheduler`](lib/tools/routine_scheduler.dart) (daily routines), [`WebSearchService`](lib/tools/web_search_service.dart) (DuckDuckGo + cloud fallback).
+   - 🚩 on-site correction self-reflection, repeat-loop KV-Flush protection, `/compact` command and memory/context cap control.
+   - Removed legacy `gpx_parser.dart` and `hook_runtime.dart`.
+   - Verified on Sony Xperia 1 VI and Samsung Z Fold 6 (unfolded wide screen).
+
 ---
 
 ## 🏗️ Architecture
@@ -76,7 +85,8 @@ flowchart TB
 lib/
 ├── core/
 │   ├── async_mutex.dart          # Native inference mutex lock
-│   └── image_compressor.dart     # Pre-inference image compression
+│   ├── image_compressor.dart     # Pre-inference image compression
+│   └── token_estimator.dart      # Token estimation & context cap control
 ├── data/
 │   ├── database_helper.dart      # Unified SQLite schema (traits/rooms/data/messages/hooks)
 │   └── models.dart               # Room, Message, ActionCard, Tool models
@@ -85,13 +95,22 @@ lib/
 │   └── gemma_litert_engine.dart  # Gemma 4 LiteRT-LM runtime, Auto-Bootstrap & Compactor
 ├── tools/
 │   ├── tool_registry.dart        # @ tool schemas, fallback executor & safe Append/Toggle writes
-│   └── native_actions.dart       # Android calendar intents & local notifications
+│   ├── native_actions.dart       # Android calendar intents & local notifications
+│   ├── fast_path_router.dart     # Zero-compute fast-path router
+│   ├── routine_scheduler.dart    # Daily routine scheduler
+│   ├── web_search_service.dart   # DuckDuckGo + cloud fallback search
+│   └── tts_service.dart          # Text-to-speech
 ├── sync/
 │   └── cloud_sync_service.dart   # Clipboard handoff & GAS two-way LWW sync
 ├── ui/
 │   ├── screens/                  # SetupGateScreen, HomeScreen
 │   └── widgets/                  # SpiritAvatar, ActionCardWidget, Modals
 └── main.dart
+android/app/src/main/kotlin/com/weilong/xiaoliu/   # Native desktop Ghost Wheel
+├── GhostOverlayService.kt        # Floating wheel overlay
+├── GhostActionRegistry.kt        # 14 modular action registry
+├── GhostLocalStore.kt            # Wheel layout & local storage
+└── GhostInPlaceExecutors.kt      # In-place (no app launch) executors
 assets/
 └── seeds/
     ├── persona_seed.example.json
@@ -143,4 +162,5 @@ flutter run
   - Direct PCM-to-WAV audio input into Gemma 4 (no external STT needed)
   - Lightweight floating bubble for on-screen capture into rooms
   - [x] `hooks` table activated: user-registered formula hooks via `@技能`, evaluated on-device (pure-Dart evaluator; `flutter_js` not used)
+  - [x] Desktop 6-slot customizable Ghost Wheel with in-place execution (done)
   - iOS support & broader GPU/NPU backend tuning

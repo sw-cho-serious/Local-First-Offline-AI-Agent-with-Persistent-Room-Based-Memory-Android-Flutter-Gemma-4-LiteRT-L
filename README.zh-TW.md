@@ -41,6 +41,15 @@
    - 全 App 共用單一 `xiaoliu.db`（`traits` / `rooms` / `data` / `messages` / `hooks`），每張表皆內建 `updated_at`、`sync_status`、`is_deleted`（軟刪除防雲端復活）。
    - 支援 **剪貼簿閃電交班（JSON 匯出/匯入）** 與 **Google Sheet + GAS 雲端自動雙向同步**（附自動彙整的現場交班看板）。
 
+6. **桌面懸浮六軌自訂輪盤（Ghost Wheel，60° 對稱六邊形）**
+   - 6 軌可自由替換、撞位自動交換，共 14 項模組化動作（`GhostActionRegistry`），設定存於 `GhostLocalStore`。
+   - **免開 App 原地執行**（`GhostInPlaceExecutors`）：手電筒、GPS 報位置、剪貼簿快貼待辦、原地語音速記、相簿最新照存證、今日待辦懸浮卡（直讀寫 SQLite）、下個排程倒數、Open-Meteo 現地天氣／風速、快速計時器、懸浮計算機（含 mm ↔ 台尺換算）、雲端戰情板刷新。
+7. **V2 引擎與路由器**
+   - [`FastPathRouter`](lib/tools/fast_path_router.dart) 零算力快路徑、[`RoutineScheduler`](lib/tools/routine_scheduler.dart) 日常排程、[`WebSearchService`](lib/tools/web_search_service.dart)（DuckDuckGo + 雲端 Fallback）。
+   - 🚩 現場糾錯自省、重複迴圈 KV-Flush 保護、`/compact` 指令與記憶體上下文上限控管。
+   - 已移除舊版 `gpx_parser.dart`、`hook_runtime.dart`。
+   - 雙實機驗證：Sony Xperia 1 VI、Samsung Z Fold 6（展開寬螢幕）。
+
 ---
 
 ## 🏗️ 系統架構圖
@@ -76,7 +85,8 @@ flowchart TB
 lib/
 ├── core/
 │   ├── async_mutex.dart          # 原生推論執行緒互斥鎖
-│   └── image_compressor.dart     # 圖片壓縮防 OOM
+│   ├── image_compressor.dart     # 圖片壓縮防 OOM
+│   └── token_estimator.dart      # Token 估算與上下文上限控管
 ├── data/
 │   ├── database_helper.dart      # SQLite 單庫架構 (traits/rooms/data/messages/hooks)
 │   └── models.dart               # Room, Message, ActionCard, Tool 等資料模型
@@ -85,13 +95,22 @@ lib/
 │   └── gemma_litert_engine.dart  # Gemma 4 LiteRT-LM 實作、Auto-Bootstrap、Context 壓縮
 ├── tools/
 │   ├── tool_registry.dart        # @ 工具定義、Fallback 執行器與安全合併寫入
-│   └── native_actions.dart       # Android 日曆 Intent 與本地通知鬧鐘
+│   ├── native_actions.dart       # Android 日曆 Intent 與本地通知鬧鐘
+│   ├── fast_path_router.dart     # 零算力快路徑路由
+│   ├── routine_scheduler.dart    # 日常排程
+│   ├── web_search_service.dart   # DuckDuckGo + 雲端 Fallback 搜尋
+│   └── tts_service.dart          # 語音朗讀
 ├── sync/
 │   └── cloud_sync_service.dart   # 剪貼簿交班 & GAS 雲端雙向同步 (LWW)
 ├── ui/
 │   ├── screens/                  # SetupGateScreen, HomeScreen
 │   └── widgets/                  # SpiritAvatar, ActionCardWidget, Modals
 └── main.dart
+android/app/src/main/kotlin/com/weilong/xiaoliu/   # 桌面懸浮六軌輪盤（原生）
+├── GhostOverlayService.kt        # 懸浮輪盤 Overlay
+├── GhostActionRegistry.kt        # 14 項動作註冊表
+├── GhostLocalStore.kt            # 輪盤配置與本機儲存
+└── GhostInPlaceExecutors.kt      # 免開 App 原地執行器
 assets/
 └── seeds/
     ├── persona_seed.example.json
@@ -143,4 +162,5 @@ flutter run
   - 原生 PCM→WAV 語音直通 Gemma 4
   - 輕量螢幕懸浮球（讀取當前畫面快速建檔）
   - [x] 已啟用 `hooks` 表：透過 `@技能` 註冊自訂公式技能，於端側運算（pure-Dart 求值器，未使用 `flutter_js`）
+  - [x] 桌面懸浮六軌自訂輪盤與原地執行（已完成）
   - iOS / 更多 GPU / NPU Backend 自動適配優化
