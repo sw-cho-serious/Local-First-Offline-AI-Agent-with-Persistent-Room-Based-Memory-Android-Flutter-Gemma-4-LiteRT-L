@@ -164,3 +164,9 @@ flutter run
   - [x] `hooks` table activated: user-registered formula hooks via `@技能`, evaluated on-device (pure-Dart evaluator; `flutter_js` not used)
   - [x] Desktop 6-slot customizable Ghost Wheel with in-place execution (done)
   - iOS support & broader GPU/NPU backend tuning
+
+---
+
+## 🙏 Credits
+
+- The desktop Ghost Wheel concept is inspired by [vNeeL-code/GHOST](https://github.com/vNeeL-code/GHOST) (MIT). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

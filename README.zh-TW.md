@@ -164,3 +164,9 @@ flutter run
   - [x] 已啟用 `hooks` 表：透過 `@技能` 註冊自訂公式技能，於端側運算（pure-Dart 求值器，未使用 `flutter_js`）
   - [x] 桌面懸浮六軌自訂輪盤與原地執行（已完成）
   - iOS / 更多 GPU / NPU Backend 自動適配優化
+
+---
+
+## 🙏 致謝
+
+- 桌面 Ghost 輪盤概念致敬並改作自 [vNeeL-code/GHOST](https://github.com/vNeeL-code/GHOST)（MIT 授權），詳見 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
