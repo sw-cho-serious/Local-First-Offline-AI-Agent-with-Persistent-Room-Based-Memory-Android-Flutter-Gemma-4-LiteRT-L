@@ -527,14 +527,14 @@ description: 天德大林案現場收尾核對清單
     expect(ToolRegistry.matchLeadingAtTool('@開燈')?.option.toolName, 'device_action');
     expect(ToolRegistry.matchLeadingAtTool('@關燈')?.cleanText, 'flashlight off');
     expect(ToolRegistry.matchLeadingAtTool('@撥號 0912345678')?.cleanText, 'dial 0912345678');
-    expect(ToolRegistry.matchLeadingAtTool('@導航 斗六火車站')?.cleanText, 'map 斗六火車站');
+    expect(ToolRegistry.matchLeadingAtTool('@導航 台北車站')?.cleanText, 'map 台北車站');
     expect(ToolRegistry.matchLeadingAtTool('@倒數 15分鐘')?.cleanText, 'timer 15分鐘');
     expect(ToolRegistry.matchLeadingAtTool('@系統設定 wifi')?.cleanText, 'settings wifi');
     expect(ToolRegistry.matchLeadingAtTool('@知識 天德大林檢核表')?.option.toolName, 'load_skill');
 
     expect(ToolRegistry.normalizeSpokenCommand('可達 開手電筒'), '@開燈');
     expect(ToolRegistry.normalizeSpokenCommand('可達 關手電筒'), '@關燈');
-    expect(ToolRegistry.normalizeSpokenCommand('導航去 斗六'), '@導航 斗六');
+    expect(ToolRegistry.normalizeSpokenCommand('導航去 台北'), '@導航 台北');
 
     final loadOut = await registry.executeTool(
       toolName: 'load_skill',
