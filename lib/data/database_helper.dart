@@ -398,21 +398,21 @@ class DatabaseHelper {
     if (hookCount == 0) {
       const defaultHooks = [
         (
-          name: '估重109',
-          description: '依單米重(kg/m)、長度(mm)與支數，算出淨重與含 1.09 損耗備料重',
-          params: ['weight_per_m', 'length_mm', 'qty'],
+          name: '估重含損耗',
+          description: '依單米重(kg/m)、長度(mm)與支數，與損耗係數(如 1.09)，算出淨重與含損耗備料重',
+          params: ['weight_per_m', 'length_mm', 'qty', 'loss_rate'],
           body: 'const net = weight_per_m * (length_mm / 1000) * qty;\n'
-              'const prep = net * 1.09;\n'
-              'return "淨重 " + net.toFixed(2) + " kg ／ 含1.09損耗備料 " + prep.toFixed(2) + " kg";',
+              'const prep = net * loss_rate;\n'
+              'return "淨重 " + net.toFixed(2) + " kg ／ 含損耗(x" + loss_rate + ")備料 " + prep.toFixed(2) + " kg";',
         ),
         (
-          name: '鋸路餘料',
-          description: '依母材定尺(mm)、單切實切(mm)與支數，計入 3.5mm 鋸路 (N+1 刀) 並判定 >=1200mm 新資產餘料',
-          params: ['stock_mm', 'cut_mm', 'qty'],
-          body: 'const kerf = 3.5 * (qty + 1);\n'
+          name: '定尺餘料',
+          description: '依母材定尺(mm)、單切長度(mm)、支數、鋸路寬(mm)與可回收餘料門檻(mm)，計入 N+1 刀鋸路並判定餘料是否可回收',
+          params: ['stock_mm', 'cut_mm', 'qty', 'kerf_mm', 'reuse_min_mm'],
+          body: 'const kerf = kerf_mm * (qty + 1);\n'
               'const used = cut_mm * qty + kerf;\n'
               'const rem = stock_mm - used;\n'
-              'return "總耗 " + used.toFixed(1) + "mm（鋸路N+1刀=" + kerf.toFixed(1) + "mm），餘料 " + rem.toFixed(1) + "mm（" + (rem >= 1200 ? "可入庫新資產" : (rem < 0 ? "超出定尺！" : "短餘料/廢料")) + "）";',
+              'return "總耗 " + used.toFixed(1) + "mm（鋸路N+1刀=" + kerf.toFixed(1) + "mm），餘料 " + rem.toFixed(1) + "mm（" + (rem >= reuse_min_mm ? "可回收再利用" : (rem < 0 ? "超出定尺！" : "短餘料/廢料")) + "）";',
         ),
       ];
       final batch = db.batch();

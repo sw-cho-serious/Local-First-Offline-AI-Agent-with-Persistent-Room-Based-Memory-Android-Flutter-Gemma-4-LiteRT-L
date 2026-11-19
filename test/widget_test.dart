@@ -436,7 +436,7 @@ void main() {
     expect(ToolRegistry.normalizeSpokenCommand('傳LINE'), '@轉LINE');
     expect(ToolRegistry.normalizeSpokenCommand('量測標註 二樓窗框'), '@量測標註 二樓窗框');
     expect(ToolRegistry.normalizeSpokenCommand('掃相簿'), '@掃相簿');
-    expect(ToolRegistry.normalizeSpokenCommand('跑技能 估重109'), '@技能 估重109');
+    expect(ToolRegistry.normalizeSpokenCommand('跑技能 估重含損耗'), '@技能 估重含損耗');
 
     expect(GemmaLiteRtEngine.detectSuggestedRoom('建立工廠雜記的房間'), '工廠雜記');
     expect(GemmaLiteRtEngine.detectSuggestedRoom('幫我開一個南科案房間'), '南科案');

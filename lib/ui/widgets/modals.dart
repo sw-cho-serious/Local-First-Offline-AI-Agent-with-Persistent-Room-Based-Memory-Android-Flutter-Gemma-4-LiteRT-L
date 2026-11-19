@@ -2029,7 +2029,7 @@ Future<void> showHookManagerModal({
                               ),
                               const SizedBox(height: 8),
                               const Text(
-                                '💡 對話框也能直接打「@技能 估重109 0.45 3200 10」或「@技能 註冊 名稱 | 說明 | a,b | a*b*1.09」',
+                                '💡 對話框也能直接打「@技能 估重含損耗 0.45 3200 10 1.09」或「@技能 註冊 名稱 | 說明 | a,b | a*b*c」',
                                 style: TextStyle(color: Color(0xFF6B7280), fontSize: 11.5),
                               ),
                             ],
