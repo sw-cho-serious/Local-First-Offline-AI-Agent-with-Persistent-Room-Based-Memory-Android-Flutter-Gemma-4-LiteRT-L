@@ -71,6 +71,42 @@ class DeviceLocationResult {
       ok && lat != null && lng != null ? 'https://maps.google.com/?q=${lat!.toStringAsFixed(6)},${lng!.toStringAsFixed(6)}' : '';
 }
 
+class DeviceRuntimeStatus {
+  const DeviceRuntimeStatus({
+    required this.ok,
+    required this.totalRamMb,
+    required this.availRamMb,
+    required this.lowMemory,
+    required this.isScreenInteractive,
+    required this.isCharging,
+    required this.batteryPct,
+  });
+
+  final bool ok;
+  final int totalRamMb;
+  final int availRamMb;
+  final bool lowMemory;
+  final bool isScreenInteractive;
+  final bool isCharging;
+  final int batteryPct;
+
+  /// Dynamic RAM context ceiling:
+  /// <= 8.5GB phones lock to 5120 tokens to shield background stability;
+  /// >= 12GB flagships (Sony/Fold6/Y700) unlock full 8192 tokens.
+  int get recommendedMaxContextTokens =>
+      (totalRamMb > 0 && totalRamMb <= 8500) ? 5120 : 8192;
+
+  static const DeviceRuntimeStatus unknown = DeviceRuntimeStatus(
+    ok: false,
+    totalRamMb: 0,
+    availRamMb: 0,
+    lowMemory: false,
+    isScreenInteractive: true,
+    isCharging: false,
+    batteryPct: -1,
+  );
+}
+
 class NativeActions {
   static const MethodChannel _calendarChannel =
       MethodChannel('com.weilong.hako/calendar');
@@ -78,9 +114,54 @@ class NativeActions {
       MethodChannel('com.weilong.hako/speech');
   static const MethodChannel _deviceChannel =
       MethodChannel('com.weilong.hako/device');
+  static const MethodChannel _nativeChannel =
+      MethodChannel('com.weilong.xiaoliu/native_actions');
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
+  static Future<void> Function()? _onMemoryCriticalCallback;
+  static Future<void> Function(String action)? _onGhostActionCallback;
+  static Future<void> Function()? _onShakeWakeCallback;
+  static void Function(String partial)? _onSpeechPartialCallback;
+  static void Function(double rms)? _onSpeechRmsCallback;
+  static bool _speechHandlerBound = false;
+
+  static void setOnMemoryCriticalCallback(Future<void> Function()? cb) {
+    _onMemoryCriticalCallback = cb;
+  }
+
+  static void setOnGhostActionCallback(Future<void> Function(String action)? cb) {
+    _onGhostActionCallback = cb;
+  }
+
+  static void setOnShakeWakeCallback(Future<void> Function()? cb) {
+    _onShakeWakeCallback = cb;
+  }
+
+  static void setSpeechUiCallbacks({
+    void Function(String partial)? onPartial,
+    void Function(double rms)? onRms,
+  }) {
+    _onSpeechPartialCallback = onPartial;
+    _onSpeechRmsCallback = onRms;
+    _ensureSpeechChannelHandler();
+  }
+
+  static void _ensureSpeechChannelHandler() {
+    if (_speechHandlerBound) return;
+    _speechHandlerBound = true;
+    _speechChannel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'onSpeechPartial':
+          final text = call.arguments?.toString() ?? '';
+          _onSpeechPartialCallback?.call(text);
+        case 'onSpeechRms':
+          final rms = (call.arguments as num?)?.toDouble() ?? 0.0;
+          _onSpeechRmsCallback?.call(rms.clamp(0.0, 1.0));
+      }
+      return null;
+    });
+  }
 
   static Future<void> initialize() async {
     if (_initialized) return;
@@ -90,6 +171,23 @@ class NativeActions {
     } catch (_) {
       // Fallback to UTC if location lookup fails in unusual environments.
     }
+
+    _ensureSpeechChannelHandler();
+    _deviceChannel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'onMemoryCritical':
+          final cb = _onMemoryCriticalCallback;
+          if (cb != null) await cb();
+        case 'onGhostAction':
+          final action = call.arguments?.toString() ?? '';
+          final cb = _onGhostActionCallback;
+          if (cb != null && action.isNotEmpty) await cb(action);
+        case 'onShakeWake':
+          final cb = _onShakeWakeCallback;
+          if (cb != null) await cb();
+      }
+      return null;
+    });
 
     const androidSettings = AndroidInitializationSettings('ic_stat_hako');
     const settings = InitializationSettings(android: androidSettings);
@@ -260,8 +358,17 @@ class NativeActions {
     );
   }
 
+  static Future<bool> ensureMicrophonePermission() async {
+    if (!Platform.isAndroid) return true;
+    final status = await Permission.microphone.status;
+    if (status.isGranted) return true;
+    final req = await Permission.microphone.request();
+    return req.isGranted;
+  }
+
   static Future<String?> listenSpeech() async {
     if (!Platform.isAndroid) return null;
+    _ensureSpeechChannelHandler();
     try {
       final spoken = await _speechChannel.invokeMethod<String>('startListening');
       final clean = spoken?.trim();
@@ -269,6 +376,24 @@ class NativeActions {
     } catch (e) {
       debugPrint('[NativeActions] speech recognition error: $e');
       return null;
+    }
+  }
+
+  static Future<void> stopSpeechListening() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _speechChannel.invokeMethod('stopListening');
+    } catch (e) {
+      debugPrint('[NativeActions] stopSpeechListening error: $e');
+    }
+  }
+
+  static Future<void> cancelSpeechListening() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _speechChannel.invokeMethod('cancelListening');
+    } catch (e) {
+      debugPrint('[NativeActions] cancelSpeechListening error: $e');
     }
   }
 
@@ -459,6 +584,206 @@ class NativeActions {
       );
     } catch (e) {
       return (ok: false, result: '', error: e.toString());
+    }
+  }
+
+  static Future<Map<String, dynamic>> callNativeAction(
+    String action, [
+    Map<String, dynamic> params = const {},
+  ]) async {
+    if (!Platform.isAndroid) {
+      return {'ok': false, 'reason': '原生動作僅支援 Android 實機'};
+    }
+    try {
+      final res = await _nativeChannel.invokeMapMethod<String, dynamic>(
+        'callNative',
+        {
+          'action': action,
+          'params': params,
+        },
+      );
+      if (res != null) {
+        return Map<String, dynamic>.from(res);
+      }
+      return {'ok': false, 'reason': '原生通道回傳空值'};
+    } catch (e) {
+      return {'ok': false, 'reason': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> setFlashlight(bool on) =>
+      callNativeAction('setFlashlight', {'on': on});
+
+  static Future<Map<String, dynamic>> dialPhone(String phone) =>
+      callNativeAction('dialPhone', {'phone': phone});
+
+  static Future<Map<String, dynamic>> vibrate({int durationMs = 220}) =>
+      callNativeAction('vibrate', {'durationMs': durationMs});
+
+  static Future<Map<String, dynamic>> copyToClipboard(String text) async {
+    if (!Platform.isAndroid) {
+      await Clipboard.setData(ClipboardData(text: text));
+      return {'ok': true, 'length': text.length, 'action': 'copyToClipboard'};
+    }
+    return callNativeAction('copyToClipboard', {'text': text});
+  }
+
+  static Future<Map<String, dynamic>> setTimerOrAlarm({
+    String mode = 'timer',
+    int? minutes,
+    int? seconds,
+    int? hour,
+    int? minute,
+    String message = 'KODARI 現場提醒',
+    bool skipUi = false,
+  }) =>
+      callNativeAction('setTimerOrAlarm', {
+        'mode': mode,
+        'minutes': ?minutes,
+        'seconds': ?seconds,
+        'hour': ?hour,
+        'minute': ?minute,
+        'message': message,
+        'skipUi': skipUi,
+      });
+
+  static Future<Map<String, dynamic>> openMapQuery(String query) =>
+      callNativeAction('openMap', {'query': query});
+
+  static Future<Map<String, dynamic>> openSystemSettings(String panel) =>
+      callNativeAction('openSettings', {'panel': panel});
+
+  static Future<Map<String, dynamic>> openExternalUrl(String url) async {
+    final clean = url.trim();
+    if (clean.isEmpty) {
+      return {'ok': false, 'reason': '缺少目標網址'};
+    }
+    final normalized = (clean.startsWith('http://') || clean.startsWith('https://'))
+        ? clean
+        : 'https://$clean';
+    if (!Platform.isAndroid) {
+      await Clipboard.setData(ClipboardData(text: normalized));
+      return {'ok': true, 'copied': true, 'url': normalized};
+    }
+    final res = await callNativeAction('openUrl', {'url': normalized});
+    if (res['ok'] == true) {
+      return res;
+    }
+    try {
+      final intent = AndroidIntent(
+        action: 'android.intent.action.VIEW',
+        data: normalized,
+      );
+      await intent.launch();
+      return {'ok': true, 'url': normalized, 'action': 'openUrl'};
+    } catch (e) {
+      return {'ok': false, 'reason': e.toString(), 'url': normalized};
+    }
+  }
+
+  static Future<DeviceRuntimeStatus> getDeviceRuntimeStatus() async {
+    if (!Platform.isAndroid) return DeviceRuntimeStatus.unknown;
+    try {
+      final res = await _deviceChannel.invokeMapMethod<String, dynamic>('getDeviceRuntimeStatus');
+      if (res == null || res['ok'] != true) return DeviceRuntimeStatus.unknown;
+      return DeviceRuntimeStatus(
+        ok: true,
+        totalRamMb: (res['totalRamMb'] as num?)?.toInt() ?? 0,
+        availRamMb: (res['availRamMb'] as num?)?.toInt() ?? 0,
+        lowMemory: res['lowMemory'] == true,
+        isScreenInteractive: res['isScreenInteractive'] != false,
+        isCharging: res['isCharging'] == true,
+        batteryPct: (res['batteryPct'] as num?)?.toInt() ?? -1,
+      );
+    } catch (_) {
+      return DeviceRuntimeStatus.unknown;
+    }
+  }
+
+  static Future<bool> checkOverlayPermission() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final res = await _deviceChannel.invokeMethod<bool>('checkOverlayPermission');
+      return res == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> requestOverlayPermission() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final res = await _deviceChannel.invokeMethod<bool>('requestOverlayPermission');
+      return res == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>> setGhostOverlayEnabled(bool enabled) async {
+    if (!Platform.isAndroid) {
+      return {'ok': false, 'reason': '僅支援 Android 裝置'};
+    }
+    try {
+      final res = await _deviceChannel.invokeMapMethod<String, dynamic>(
+        'setGhostOverlayEnabled',
+        {'enabled': enabled},
+      );
+      return res != null ? Map<String, dynamic>.from(res) : {'ok': false};
+    } catch (e) {
+      return {'ok': false, 'reason': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> setShakeToWakeEnabled(bool enabled) async {
+    if (!Platform.isAndroid) {
+      return {'ok': false, 'reason': '僅支援 Android 裝置'};
+    }
+    try {
+      final res = await _deviceChannel.invokeMapMethod<String, dynamic>(
+        'setShakeToWakeEnabled',
+        {'enabled': enabled},
+      );
+      return res != null ? Map<String, dynamic>.from(res) : {'ok': false};
+    } catch (e) {
+      return {'ok': false, 'reason': e.toString()};
+    }
+  }
+
+  static Future<String?> consumePendingLaunchAction() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await _deviceChannel.invokeMethod<String>('consumePendingLaunchAction');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<List<String>> setGhostWheelSlots(List<String> slots) async {
+    if (!Platform.isAndroid) return slots;
+    try {
+      final res = await _deviceChannel.invokeMapMethod<String, dynamic>(
+        'setGhostWheelSlots',
+        {'slots': slots},
+      );
+      final saved = res?['slots'];
+      if (saved is List) {
+        return saved.map((e) => e.toString()).toList(growable: false);
+      }
+      return slots;
+    } catch (_) {
+      return slots;
+    }
+  }
+
+  static Future<List<String>> getGhostWheelSlots() async {
+    if (!Platform.isAndroid) return const [];
+    try {
+      final res = await _deviceChannel.invokeListMethod<dynamic>('getGhostWheelSlots');
+      if (res == null) return const [];
+      return res.map((e) => e.toString()).toList(growable: false);
+    } catch (_) {
+      return const [];
     }
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import '../data/models.dart';
@@ -39,6 +40,34 @@ abstract class LlmEngine {
   bool get useGpu;
   String get activeBackendLabel;
   String? get installedModelPath;
+  Future<List<File>> scanAvailableModelFiles() async => const [];
+
+  /// Dual-channel engine routing: `'litert'` (on-device .litertlm) vs `'local_http'` (Termux / Y700 GGUF).
+  String get engineChannel;
+  String get localHttpUrl;
+  String get localHttpModel;
+  int get effectiveMaxContextTokens;
+
+  Future<void> configureEngineChannel({
+    required String channel,
+    String? httpUrl,
+    String? httpModel,
+  });
+
+  Future<({bool ok, String message, List<String> models})> testLocalHttpConnection([
+    String? urlOverride,
+  ]);
+
+  /// V2 Batch 2: Manual /compact compressor, 🚩 idle reflection, and critical RAM release.
+  Future<({bool compacted, String summary, int beforeTokens, int afterTokens})> forceCompactRoom(
+    String roomId,
+  );
+
+  Future<({int reviewedCount, String lesson})> runIdleFlaggedReflection({
+    bool forceManual = false,
+  });
+
+  Future<void> handleCriticalMemoryPressure();
 
   Future<void> initializeEngine();
 
@@ -66,6 +95,9 @@ abstract class LlmEngine {
 
   /// Background context compactor (runs only on room leave or 30s idle).
   Future<void> compactRoomIfNeeded(String roomId);
+
+  /// Clears cached chat session so updated traits/skills take effect next turn.
+  Future<void> invalidateSession();
 
   Future<void> dispose();
 }

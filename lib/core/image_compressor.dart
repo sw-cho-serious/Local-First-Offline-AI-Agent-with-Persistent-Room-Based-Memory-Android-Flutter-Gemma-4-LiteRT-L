@@ -20,10 +20,10 @@ class CompressedImageResult {
   final int estimatedTokens;
 }
 
-/// Compresses field photos so their longest edge is <= 896px JPEG (~256-512
+/// Compresses field photos so their longest edge is <= 1568px JPEG (~256-512
 /// Gemma vision tokens) before persisting or feeding into the 4B runtime.
 class ImageCompressor {
-  static const int maxEdgePx = 896;
+  static const int maxEdgePx = 1568;
   static const int jpegQuality = 82;
 
   static Future<CompressedImageResult> compressAndSave(String sourcePath) async {

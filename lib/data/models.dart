@@ -91,7 +91,7 @@ class ActionCardData {
     required this.payload,
   });
 
-  /// Types: 'calendar', 'profile', 'tuning', 'notification', 'create_room'
+  /// Types: 'calendar', 'profile', 'tuning', 'notification', 'create_room', 'skill', 'device_action'
   final String type;
   final String badge;
   final String title;
@@ -293,6 +293,283 @@ class HookRecord {
       params: parsed,
       body: map['body'] as String? ?? '',
       updatedAt: map['updated_at'] as int? ?? 0,
+    );
+  }
+}
+
+class SkillRecord {
+  const SkillRecord({
+    required this.id,
+    required this.name,
+    required this.triggerKeywords,
+    required this.description,
+    required this.contentMd,
+    required this.enabled,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String name;
+  final List<String> triggerKeywords;
+  final String description;
+  final String contentMd;
+  final bool enabled;
+  final int updatedAt;
+
+  String get triggerKeywordsCsv => triggerKeywords.join(',');
+
+  bool matchesInput(String userText) {
+    if (!enabled) return false;
+    final lower = userText.toLowerCase().trim();
+    if (lower.isEmpty) return false;
+    if (name.trim().isNotEmpty && lower.contains('@${name.trim().toLowerCase()}')) {
+      return true;
+    }
+    for (final rawKw in triggerKeywords) {
+      final kw = rawKw.trim().toLowerCase();
+      if (kw.isNotEmpty && lower.contains(kw)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static List<String> parseKeywords(String raw) {
+    return raw
+        .split(RegExp(r'[,，、\s]+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  static SkillRecord parseFromMarkdown(
+    String rawMd, {
+    String? id,
+    String? fallbackName,
+  }) {
+    final normalized = rawMd.replaceAll('\r\n', '\n').trim();
+    var name = (fallbackName ?? '').trim();
+    var desc = '';
+    var keywords = <String>[];
+    var enabled = true;
+    var body = normalized;
+
+    final fmMatch = RegExp(r'^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$').firstMatch(normalized);
+    if (fmMatch != null) {
+      final header = fmMatch.group(1) ?? '';
+      body = (fmMatch.group(2) ?? '').trim();
+      for (final line in header.split('\n')) {
+        final idx = line.indexOf(':');
+        if (idx <= 0) continue;
+        final key = line.substring(0, idx).trim().toLowerCase();
+        var val = line.substring(idx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) ||
+            (val.startsWith("'") && val.endsWith("'"))) {
+          if (val.length >= 2) val = val.substring(1, val.length - 1);
+        }
+        switch (key) {
+          case 'name':
+          case 'title':
+            if (val.isNotEmpty) name = val;
+            break;
+          case 'description':
+          case 'desc':
+            if (val.isNotEmpty) desc = val;
+            break;
+          case 'trigger_keywords':
+          case 'keywords':
+          case 'triggers':
+            keywords = parseKeywords(val.replaceAll(RegExp(r'[\[\]]'), ''));
+            break;
+          case 'enabled':
+            enabled = val.toLowerCase() != 'false' && val != '0';
+            break;
+        }
+      }
+    }
+
+    if (name.isEmpty) {
+      final h1Match = RegExp(r'^#\s+(.+)$', multiLine: true).firstMatch(body);
+      if (h1Match != null) {
+        name = h1Match.group(1)!.trim();
+      }
+    }
+    if (name.isEmpty) {
+      name = '自訂技能_${DateTime.now().millisecondsSinceEpoch % 10000}';
+    }
+    if (desc.isEmpty) {
+      for (final line in body.split('\n')) {
+        final t = line.trim();
+        if (t.isEmpty || t.startsWith('#')) continue;
+        desc = t.length > 60 ? '${t.substring(0, 60)}...' : t;
+        break;
+      }
+    }
+    if (desc.isEmpty) {
+      desc = '$name 現場技能指引';
+    }
+    if (keywords.isEmpty) {
+      keywords = [name];
+    }
+
+    final cleanId = (id != null && id.trim().isNotEmpty)
+        ? id.trim()
+        : 'skill_${name.replaceAll(RegExp(r'\s+'), '_')}';
+
+    return SkillRecord(
+      id: cleanId,
+      name: name,
+      triggerKeywords: keywords,
+      description: desc,
+      contentMd: body.isEmpty ? normalized : body,
+      enabled: enabled,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  factory SkillRecord.fromMap(Map<String, Object?> map) {
+    final enabledRaw = map['enabled'];
+    final isEnabled = enabledRaw is bool
+        ? enabledRaw
+        : ((enabledRaw as num?)?.toInt() ?? 1) != 0;
+    return SkillRecord(
+      id: (map['id'] as String? ?? '').trim(),
+      name: (map['name'] as String? ?? '').trim(),
+      triggerKeywords: parseKeywords((map['trigger_keywords'] ?? '').toString()),
+      description: (map['description'] ?? '').toString(),
+      contentMd: (map['content_md'] ?? '').toString(),
+      enabled: isEnabled,
+      updatedAt: (map['updated_at'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class OperatorFlagRecord {
+  const OperatorFlagRecord({
+    required this.id,
+    required this.messageId,
+    required this.roomId,
+    required this.reason,
+    required this.userNote,
+    required this.flaggedContent,
+    required this.reviewed,
+    required this.lesson,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final int messageId;
+  final String roomId;
+  final String reason;
+  final String userNote;
+  final String flaggedContent;
+  final bool reviewed;
+  final String lesson;
+  final int createdAt;
+  final int updatedAt;
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'message_id': messageId,
+        'room_id': roomId,
+        'reason': reason,
+        'user_note': userNote,
+        'flagged_content': flaggedContent,
+        'reviewed': reviewed ? 1 : 0,
+        'lesson': lesson,
+        'created_at': createdAt,
+        'updated_at': updatedAt,
+      };
+
+  factory OperatorFlagRecord.fromMap(Map<String, Object?> map) {
+    return OperatorFlagRecord(
+      id: (map['id'] ?? '').toString(),
+      messageId: (map['message_id'] as num?)?.toInt() ?? 0,
+      roomId: (map['room_id'] ?? 'main').toString(),
+      reason: (map['reason'] ?? '').toString(),
+      userNote: (map['user_note'] ?? '').toString(),
+      flaggedContent: (map['flagged_content'] ?? '').toString(),
+      reviewed: ((map['reviewed'] as num?)?.toInt() ?? 0) != 0,
+      lesson: (map['lesson'] ?? '').toString(),
+      createdAt: (map['created_at'] as num?)?.toInt() ?? 0,
+      updatedAt: (map['updated_at'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class RoutineRecord {
+  const RoutineRecord({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.mode,
+    required this.timeSpec,
+    required this.weekdaysCsv,
+    required this.enabled,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String body;
+
+  /// `'once'` | `'daily'` | `'weekly'` | `'cron'`
+  final String mode;
+  final String timeSpec;
+  final String weekdaysCsv;
+  final bool enabled;
+  final int updatedAt;
+
+  List<int> get weekdays {
+    final parsed = weekdaysCsv
+        .split(RegExp(r'[,，\s]+'))
+        .map((s) => int.tryParse(s.trim()))
+        .whereType<int>()
+        .where((d) => d >= 1 && d <= 7)
+        .toList();
+    return parsed.isEmpty ? const [1, 2, 3, 4, 5, 6] : parsed;
+  }
+
+  String get modeLabel {
+    switch (mode) {
+      case 'once':
+        return '單次';
+      case 'weekly':
+        return '每週';
+      case 'cron':
+        return 'Cron';
+      case 'daily':
+      default:
+        return '每日';
+    }
+  }
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'title': title,
+        'body': body,
+        'mode': mode,
+        'time_spec': timeSpec,
+        'weekdays_csv': weekdaysCsv,
+        'enabled': enabled ? 1 : 0,
+        'updated_at': updatedAt,
+      };
+
+  factory RoutineRecord.fromMap(Map<String, Object?> map) {
+    final enabledRaw = map['enabled'];
+    final isEnabled = enabledRaw is bool
+        ? enabledRaw
+        : ((enabledRaw as num?)?.toInt() ?? 1) != 0;
+    return RoutineRecord(
+      id: (map['id'] ?? '').toString(),
+      title: (map['title'] ?? '').toString(),
+      body: (map['body'] ?? '').toString(),
+      mode: (map['mode'] ?? 'daily').toString(),
+      timeSpec: (map['time_spec'] ?? '08:00').toString(),
+      weekdaysCsv: (map['weekdays_csv'] ?? '1,2,3,4,5,6').toString(),
+      enabled: isEnabled,
+      updatedAt: (map['updated_at'] as num?)?.toInt() ?? 0,
     );
   }
 }

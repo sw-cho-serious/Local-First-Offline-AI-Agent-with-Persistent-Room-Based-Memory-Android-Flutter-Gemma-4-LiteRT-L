@@ -25,7 +25,10 @@ const TABLE_SCHEMAS = {
   'rooms': ['room_id', 'title', 'subtitle', 'color_hex', 'accessory', 'avatar_state', 'rolling_summary', 'summarized_until_msg_id', 'updated_at', 'is_deleted'],
   'data': ['key', 'room_id', 'value', 'updated_at', 'is_deleted'],
   'messages': ['msg_uid', 'room_id', 'role', 'content', 'image_path', 'tool_pill', 'card_json', 'is_starred', 'archived_color_hex', 'archived_title', 'created_at', 'is_deleted'],
-  'hooks': ['name', 'description', 'params_json', 'body', 'updated_at', 'is_deleted']
+  'hooks': ['name', 'description', 'params_json', 'body', 'updated_at', 'is_deleted'],
+  'skills': ['id', 'name', 'trigger_keywords', 'description', 'content_md', 'enabled', 'updated_at', 'is_deleted'],
+  'peer_logs': ['id', 'room_id', 'query', 'reply', 'peer', 'created_at'],
+  'photo_uploads': ['id', 'room_id', 'file_name', 'drive_url', 'note', 'created_at']
 };
 
 function doGet(e) {
@@ -48,6 +51,13 @@ function doPost(e) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     ensureSheetsExist_(ss);
 
+    if (body.action === 'consult_peer') {
+      return handleConsultPeer_(ss, body);
+    }
+    if (body.action === 'upload_photo') {
+      return handleUploadPhoto_(ss, body);
+    }
+
     const clientLastSync = Number(body.last_sync_at || 0);
     const payload = body.payload || {};
 
@@ -56,6 +66,7 @@ function doPost(e) {
     mergeKeyedSheet_(ss.getSheetByName('rooms'), TABLE_SCHEMAS.rooms, 'room_id', 'updated_at', payload.rooms || []);
     mergeKeyedSheet_(ss.getSheetByName('data'), TABLE_SCHEMAS.data, 'key', 'updated_at', payload.data || []);
     mergeKeyedSheet_(ss.getSheetByName('hooks'), TABLE_SCHEMAS.hooks, 'name', 'updated_at', payload.hooks || []);
+    mergeKeyedSheet_(ss.getSheetByName('skills'), TABLE_SCHEMAS.skills, 'id', 'updated_at', payload.skills || []);
     mergeMessagesSheet_(ss.getSheetByName('messages'), payload.messages || []);
 
     // 2. Refresh human/AI-readable dashboard sheet for Aero/Spark handoff
@@ -72,7 +83,8 @@ function doPost(e) {
       rooms: readRowsSince_(ss.getSheetByName('rooms'), TABLE_SCHEMAS.rooms, 'updated_at', clientLastSync),
       data: readRowsSince_(ss.getSheetByName('data'), TABLE_SCHEMAS.data, 'updated_at', clientLastSync),
       messages: readRowsSince_(ss.getSheetByName('messages'), TABLE_SCHEMAS.messages, 'created_at', clientLastSync),
-      hooks: readRowsSince_(ss.getSheetByName('hooks'), TABLE_SCHEMAS.hooks, 'updated_at', clientLastSync)
+      hooks: readRowsSince_(ss.getSheetByName('hooks'), TABLE_SCHEMAS.hooks, 'updated_at', clientLastSync),
+      skills: readRowsSince_(ss.getSheetByName('skills'), TABLE_SCHEMAS.skills, 'updated_at', clientLastSync)
     };
 
     return jsonOut({
@@ -263,5 +275,195 @@ function syncTodosToGoogleTasks_(ss) {
       }
     });
   });
+}
+
+function handleConsultPeer_(ss, body) {
+  const query = String(body.query || '').trim();
+  const contextText = String(body.context || '').trim();
+  const roomId = String(body.room_id || 'main').trim();
+  const fallbackReason = String(body.fallback_reason || '').trim();
+
+  if (!query) {
+    return jsonOut({ ok: false, error: '缺少 consult_peer 查詢問題內容 (query)' });
+  }
+
+  // Build active factory room/todo background from Google Sheet
+  const rooms = sheetToObjects_(ss.getSheetByName('rooms'), TABLE_SCHEMAS.rooms);
+  const data = sheetToObjects_(ss.getSheetByName('data'), TABLE_SCHEMAS.data);
+  const roomTitleById = {};
+  rooms.forEach(function (r) {
+    if (Number(r.is_deleted || 0) === 0) roomTitleById[r.room_id] = r.title;
+  });
+
+  const activeTodoSummaries = [];
+  data.forEach(function (d) {
+    if (Number(d.is_deleted || 0) !== 0) return;
+    const title = roomTitleById[d.room_id] || d.room_id;
+    const val = String(d.value || '').trim();
+    if (val) {
+      activeTodoSummaries.push('【' + title + '】\n' + val);
+    }
+  });
+
+  const boardContext = activeTodoSummaries.slice(0, 8).join('\n\n');
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+
+  let replyText = '';
+  let sources = [];
+  let peerName = 'Spark 參謀';
+
+  if (apiKey) {
+    try {
+      const sysText = '你是雲端參謀 Spark，與手機端工兵 KODARI 協同支援現場使用者。' +
+        '語氣規則：繁體中文、直接簡潔、平輩稱呼「你」（嚴禁使用「您」），有實務結論直接條列重點。' +
+        '當涉及廠內材料規則時須注意 1.09 耗損、3.5mm 鋸路、6.4m 093Z/094、300kg 特殊排抽門檻。';
+      const userPrompt = '【發起房間】' + (roomTitleById[roomId] || roomId) + '\n' +
+        (fallbackReason ? '【端側 fallback 原因】' + fallbackReason + '\n' : '') +
+        (contextText ? '【端側補充上下文】\n' + contextText + '\n\n' : '') +
+        (boardContext ? '【目前交班待辦總覽】\n' + boardContext + '\n\n' : '') +
+        '【使用者現場提問】\n' + query;
+
+      const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(apiKey);
+      const res = UrlFetchApp.fetch(endpoint, {
+        method: 'post',
+        contentType: 'application/json',
+        muteHttpExceptions: true,
+        payload: JSON.stringify({
+          systemInstruction: { parts: [{ text: sysText }] },
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          tools: [{ google_search: {} }]
+        })
+      });
+
+      const code = res.getResponseCode();
+      if (code >= 200 && code < 300) {
+        const parsed = JSON.parse(res.getContentText() || '{}');
+        const cand = (parsed.candidates && parsed.candidates[0]) || {};
+        const parts = (cand.content && cand.content.parts) || [];
+        replyText = parts.map(function (p) { return p.text || ''; }).join('\n').trim();
+
+        const grounding = cand.groundingMetadata || {};
+        const chunks = grounding.groundingChunks || [];
+        chunks.forEach(function (ch) {
+          if (ch.web && ch.web.uri) {
+            const uri = String(ch.web.uri);
+            const domainMatch = uri.match(/^https?:\/\/([^\/]+)/i);
+            sources.push({
+              title: String(ch.web.title || '雲端查證來源'),
+              url: uri,
+              snippet: '',
+              domain: domainMatch ? domainMatch[1] : ''
+            });
+          }
+        });
+      } else {
+        replyText = '雲端參謀呼叫 Gemini 回傳 HTTP ' + code + '：' + res.getContentText().slice(0, 180);
+      }
+    } catch (err) {
+      replyText = '雲端參謀連線異常：' + String(err);
+    }
+  }
+
+  if (!replyText) {
+    peerName = 'HAKO 雲端庫直查（尚未設定 GEMINI_API_KEY）';
+    const kw = query.toLowerCase();
+    const matchedLines = [];
+    activeTodoSummaries.forEach(function (block) {
+      block.split('\n').forEach(function (line) {
+        if (line.toLowerCase().indexOf(kw) !== -1) matchedLines.push(line);
+      });
+    });
+
+    const messages = sheetToObjects_(ss.getSheetByName('messages'), TABLE_SCHEMAS.messages);
+    messages.forEach(function (m) {
+      if (Number(m.is_deleted || 0) === 0 && String(m.content || '').toLowerCase().indexOf(kw) !== -1) {
+        matchedLines.push('[' + (roomTitleById[m.room_id] || m.room_id) + '] ' + String(m.content).slice(0, 100));
+      }
+    });
+
+    if (matchedLines.length > 0) {
+      replyText = '目前 GAS 還沒設定 GEMINI_API_KEY，我先從雲端交班庫幫你撈出相關紀錄：\n' +
+        matchedLines.slice(0, 8).join('\n');
+    } else {
+      replyText = '已收到請求「' + query + '」，目前 GAS 指令碼屬性尚未設定 GEMINI_API_KEY（可至 Apps Script「專案設定 → 指令碼屬性」填入 GEMINI_API_KEY 即可直接開啟雲端 Spark 聯網參謀）。\n目前雲端庫共有 ' + activeTodoSummaries.length + ' 間活躍待辦房，暫無吻合「' + query + '」的紀錄。';
+    }
+  }
+
+  try {
+    const peerLogSheet = ss.getSheetByName('peer_logs');
+    if (peerLogSheet) {
+      peerLogSheet.appendRow([
+        Utilities.getUuid(),
+        roomId,
+        query,
+        replyText.slice(0, 4000),
+        peerName,
+        Date.now()
+      ]);
+    }
+  } catch (_) {}
+
+  return jsonOut({
+    ok: true,
+    peer: peerName,
+    reply: replyText,
+    sources: sources.slice(0, 5),
+    server_time: Date.now()
+  });
+}
+
+function handleUploadPhoto_(ss, body) {
+  const b64 = String(body.base64_jpg || '').trim();
+  const roomId = String(body.room_id || 'main').trim();
+  const roomTitle = String(body.room_title || roomId).trim();
+  const note = String(body.note || '').trim();
+  const createTodo = body.create_todo === true;
+  const fileName = String(body.file_name || ('hako_' + Date.now() + '.jpg')).trim();
+
+  if (!b64) {
+    return jsonOut({ ok: false, error: '缺少 base64_jpg 影像資料' });
+  }
+
+  try {
+    const folderName = 'HAKO_KODARI_現場照片庫';
+    const folders = DriveApp.getFoldersByName(folderName);
+    const rootFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+
+    const bytes = Utilities.base64Decode(b64);
+    const blob = Utilities.newBlob(bytes, 'image/jpeg', fileName);
+    const file = rootFolder.createFile(blob);
+    const driveUrl = file.getUrl();
+
+    const uploadSheet = ss.getSheetByName('photo_uploads');
+    if (uploadSheet) {
+      uploadSheet.appendRow([file.getId(), roomId, fileName, driveUrl, note, Date.now()]);
+    }
+
+    // ONLY mirror into 'HAKO 工作待辦' if explicitly marked as a todo (e.g. annotated dimension photos or pinned items)
+    if (createTodo) {
+      try {
+        if (typeof Tasks !== 'undefined') {
+          const listTitle = 'HAKO 工作待辦';
+          const taskLists = Tasks.Tasklists.list().items || [];
+          let targetList = taskLists.find(function (l) { return l.title === listTitle; });
+          if (!targetList) targetList = Tasks.Tasklists.insert({ title: listTitle });
+          const label = note ? note : '現場實拍照';
+          Tasks.Tasks.insert({
+            title: '[' + roomTitle + '] 📷 ' + label,
+            notes: driveUrl
+          }, targetList.id);
+        }
+      } catch (_) {}
+    }
+
+    return jsonOut({
+      ok: true,
+      file_id: file.getId(),
+      drive_url: driveUrl,
+      server_time: Date.now()
+    });
+  } catch (err) {
+    return jsonOut({ ok: false, error: 'Drive 上傳失敗：' + String(err) });
+  }
 }
 

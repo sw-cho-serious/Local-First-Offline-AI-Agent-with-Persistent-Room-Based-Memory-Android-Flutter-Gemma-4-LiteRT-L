@@ -210,9 +210,9 @@ class _PhotoAnnotatorDialogState extends State<_PhotoAnnotatorDialog> {
 
     try {
       final maxDim = math.max(src.width, src.height);
-      final scale = maxDim > 1280 ? 1280.0 / maxDim : 1.0;
-      final outW = (src.width * scale).round().clamp(1, 1280);
-      final outH = (src.height * scale).round().clamp(1, 1280);
+      final scale = maxDim > 1568 ? 1568.0 / maxDim : 1.0;
+      final outW = (src.width * scale).round().clamp(1, 1568);
+      final outH = (src.height * scale).round().clamp(1, 1568);
 
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(

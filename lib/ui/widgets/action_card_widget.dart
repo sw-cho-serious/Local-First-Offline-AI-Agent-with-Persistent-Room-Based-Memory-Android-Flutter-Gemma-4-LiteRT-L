@@ -15,6 +15,8 @@ class ActionCardWidget extends StatefulWidget {
     this.onOpenAlbumScanner,
     this.onOpenGpxImport,
     this.onOpenHookManager,
+    this.onOpenSkillManager,
+    this.onOpenRoutineManager,
   });
 
   final ActionCardData card;
@@ -25,6 +27,8 @@ class ActionCardWidget extends StatefulWidget {
   final Future<void> Function()? onOpenAlbumScanner;
   final Future<void> Function()? onOpenGpxImport;
   final Future<void> Function()? onOpenHookManager;
+  final Future<void> Function()? onOpenSkillManager;
+  final Future<void> Function()? onOpenRoutineManager;
 
   @override
   State<ActionCardWidget> createState() => _ActionCardWidgetState();
@@ -90,6 +94,76 @@ class _ActionCardWidgetState extends State<ActionCardWidget> {
                 style: const TextStyle(fontSize: 12.5, color: Color(0xFFD1D5DB)),
               ),
             ),
+          if (card.payload['sources'] is List &&
+              (card.payload['sources'] as List).isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text(
+              '🔗 點擊驗證來源連結：',
+              style: TextStyle(fontSize: 11.5, color: Color(0xFF93C5FD), fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 5),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final raw in (card.payload['sources'] as List))
+                  if (raw is Map && (raw['url'] ?? '').toString().trim().isNotEmpty)
+                    Builder(
+                      builder: (_) {
+                        final srcUrl = (raw['url'] ?? '').toString().trim();
+                        final srcDomain = (raw['domain'] ?? '').toString().trim();
+                        final srcTitle = (raw['title'] ?? '來源網頁').toString().trim();
+                        final shortTitle = srcTitle.length > 18
+                            ? '${srcTitle.substring(0, 18)}…'
+                            : srcTitle;
+                        final label = srcDomain.isNotEmpty
+                            ? '$shortTitle ($srcDomain)'
+                            : shortTitle;
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () async {
+                            final res = await NativeActions.openExternalUrl(srcUrl);
+                            if (res['ok'] == true) {
+                              widget.onToast(
+                                res['copied'] == true
+                                    ? '📋 已複製來源網址：$srcDomain'
+                                    : '🌐 開啟來源：${srcDomain.isNotEmpty ? srcDomain : srcUrl}',
+                              );
+                            } else {
+                              widget.onToast('⚠️ 無法開啟連結：${res['reason'] ?? ''}');
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: const Color(0xFF38BDF8).withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.open_in_new, size: 12, color: Color(0xFF7DD3FC)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '🌐 $label',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFFBAE6FD),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+              ],
+            ),
+          ],
           if (effectiveLabel.isNotEmpty) ...[
             const SizedBox(height: 8),
             SizedBox(
@@ -260,12 +334,47 @@ class _ActionCardWidgetState extends State<ActionCardWidget> {
         }
         break;
       case 'hook':
-        if (widget.onOpenHookManager != null) {
-          await widget.onOpenHookManager!();
+      case 'skill':
+        if (widget.onOpenSkillManager != null) {
+          await widget.onOpenSkillManager!();
         } else {
           final copyText = (card.payload['copyText'] ?? card.title).toString();
           await Clipboard.setData(ClipboardData(text: copyText));
           widget.onToast('📋 已複製技能資訊');
+        }
+        break;
+      case 'device_action':
+        final action = (card.payload['action'] ?? '').toString();
+        final rawParams = card.payload['params'];
+        final params = rawParams is Map
+            ? Map<String, dynamic>.from(rawParams)
+            : <String, dynamic>{};
+        if (action.isNotEmpty) {
+          final res = await NativeActions.callNativeAction(action, params);
+          if (res['ok'] == true) {
+            widget.onToast('✅ 已喚起原生動作：$action');
+          } else {
+            widget.onToast('⚠️ ${res['reason'] ?? '原生動作執行未完成'}');
+          }
+        }
+        break;
+      case 'web_search':
+      case 'consult_peer':
+        final primaryUrl = (card.payload['primaryUrl'] ?? '').toString().trim();
+        if (primaryUrl.isNotEmpty) {
+          final res = await NativeActions.openExternalUrl(primaryUrl);
+          widget.onToast(
+            res['ok'] == true ? '🌐 已開啟查證網頁' : '⚠️ ${res['reason'] ?? '無法開啟'}',
+          );
+        } else {
+          final copyText = (card.payload['copyText'] ?? card.title).toString();
+          await Clipboard.setData(ClipboardData(text: copyText));
+          widget.onToast('📋 已複製聯網／參謀整理結果');
+        }
+        break;
+      case 'routine':
+        if (widget.onOpenRoutineManager != null) {
+          await widget.onOpenRoutineManager!();
         }
         break;
     }

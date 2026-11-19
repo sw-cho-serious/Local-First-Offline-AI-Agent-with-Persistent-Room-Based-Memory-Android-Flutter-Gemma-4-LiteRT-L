@@ -37,8 +37,82 @@ class DatabaseHelper {
       options: OpenDatabaseOptions(
         version: 1,
         onCreate: _onCreate,
+        onOpen: (db) async {
+          await _ensureSkillsTable(db);
+          await _ensureBatch2Tables(db);
+        },
       ),
     );
+  }
+
+  Future<void> _ensureSkillsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS skills (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        trigger_keywords TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        content_md TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updated_at INTEGER NOT NULL,
+        sync_status TEXT DEFAULT 'pending',
+        is_deleted INTEGER DEFAULT 0
+      )
+    ''');
+  }
+
+  Future<void> _ensureBatch2Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS operator_flags (
+        id TEXT PRIMARY KEY,
+        message_id INTEGER NOT NULL,
+        room_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        user_note TEXT NOT NULL DEFAULT '',
+        flagged_content TEXT NOT NULL DEFAULT '',
+        reviewed INTEGER NOT NULL DEFAULT 0,
+        lesson TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        sync_status TEXT DEFAULT 'pending',
+        is_deleted INTEGER DEFAULT 0
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS routines (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        mode TEXT NOT NULL DEFAULT 'daily',
+        time_spec TEXT NOT NULL DEFAULT '08:00',
+        weekdays_csv TEXT NOT NULL DEFAULT '1,2,3,4,5,6',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updated_at INTEGER NOT NULL,
+        sync_status TEXT DEFAULT 'pending',
+        is_deleted INTEGER DEFAULT 0
+      )
+    ''');
+
+    final countRes = await db.rawQuery('SELECT COUNT(*) AS cnt FROM routines');
+    final cnt = (countRes.first['cnt'] as num?)?.toInt() ?? 0;
+    if (cnt == 0) {
+      await db.insert(
+        'routines',
+        {
+          'id': 'routine_morning_check',
+          'title': '早班現場待辦與追料巡檢',
+          'body': '檢查各工作房間待辦與昨天未收尾的料件交期。',
+          'mode': 'weekly',
+          'time_spec': '07:30',
+          'weekdays_csv': '1,2,3,4,5,6',
+          'enabled': 0,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+          'sync_status': 'synced',
+          'is_deleted': 0,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -128,6 +202,9 @@ class DatabaseHelper {
         note TEXT
       )
     ''');
+
+    await _ensureSkillsTable(db);
+    await _ensureBatch2Tables(db);
 
     await db.execute('CREATE INDEX idx_messages_room ON messages(room_id, is_deleted, id)');
     await db.execute('CREATE INDEX idx_data_room ON data(room_id, is_deleted)');
@@ -337,6 +414,59 @@ class DatabaseHelper {
             'description': h.description,
             'params_json': jsonEncode(h.params),
             'body': h.body,
+            'updated_at': now,
+            'sync_status': 'pending',
+            'is_deleted': 0,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      await batch.commit(noResult: true);
+    }
+
+    // 3.6 Seed default P4 modular JIT skills if empty
+    final skillCount = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM skills'),
+        ) ??
+        0;
+    if (skillCount == 0) {
+      const defaultSkills = [
+        (
+          id: 'skill_railing_sop',
+          name: '欄杆現場丈量SOP',
+          triggerKeywords: '欄杆,玻璃,立柱,丈量,二橫,三橫',
+          description: '二橫/三橫玻璃與直欞欄杆實測檢核：防呆孔距/外包尺寸、特殊鐵件提醒',
+          contentMd: '''### 欄杆丈量實測檢核 SOP
+- **尺寸角色必問清**：區分「結構外包總長」、「立柱跨距/孔距」與「鋁料實切長」，絕不直接拿總長或孔距當下料切長。
+- **093Z/094 長度提醒**：這兩款一律走 6400mm 定尺；其餘未確認實切長若缺尺寸直接停步詢問使用者。
+- **鐵件與白鐵覆核**：遇到預埋底板、L鐵、自折件或白鐵立柱，主動提醒人工覆核發外包。
+- **現場建議動作**：鼓勵用 `@量測標註` 直接在照片畫雙箭頭寫實測毫米存進案場房。''',
+        ),
+        (
+          id: 'skill_hardware_actions',
+          name: '工地硬體快捷助手',
+          triggerKeywords: '手電筒,開燈,關燈,太暗,打電話,撥號,導航,路線,熱點,WiFi,藍牙,倒數,計時器,震動',
+          description: '工地現場免選單：直接調用 device_action 控制手電筒、撥號、Maps導航、倒數計時與設定頁',
+          contentMd: '''### 工地原生硬體手腳呼叫指南 (`device_action`)
+當使用者提出現場硬體或系統操作需求時，直接呼叫 `device_action` 工具：
+- **開/關手電筒** (`"太暗 / 開燈 / 關手電筒"`)：`action: "setFlashlight"`, `value: "on"` 或 `"off"`
+- **帶入撥號盤** (`"打給 09..." / "撥號..."`)：`action: "dialPhone"`, `value: "號碼"`（只填號開啟撥號盤，安全防誤撥）
+- **工地倒數/鬧鐘** (`"15分鐘後看烤漆" / "設倒數"`)：`action: "setTimerOrAlarm"`, `value: "15分鐘 看烤漆"`
+- **Google Maps 導航** (`"導航去..." / "找地址"`)：`action: "openMap"`, `value: "目的地地址或座標"`
+- **系統設定頁** (`"開熱點 / 連WiFi / 藍牙設定"`)：`action: "openSettings"`, `value: "wifi" | "bluetooth" | "hotspot" | "location"`''',
+        ),
+      ];
+      final batch = db.batch();
+      for (final s in defaultSkills) {
+        batch.insert(
+          'skills',
+          {
+            'id': s.id,
+            'name': s.name,
+            'trigger_keywords': s.triggerKeywords,
+            'description': s.description,
+            'content_md': s.contentMd,
+            'enabled': 1,
             'updated_at': now,
             'sync_status': 'pending',
             'is_deleted': 0,
@@ -772,6 +902,64 @@ class DatabaseHelper {
     );
   }
 
+  Future<void> deleteTodoAtIndex(String roomId, int lineIndex) async {
+    final db = await database;
+    final key = dataKeyForRoom(roomId);
+    final raw = await getDataValue(key);
+    if (raw.trim().isEmpty) return;
+
+    final lines = raw.split('\n');
+    if (lineIndex < 0 || lineIndex >= lines.length) return;
+    lines.removeAt(lineIndex);
+
+    await db.insert(
+      'data',
+      {
+        'key': key,
+        'room_id': roomId,
+        'value': lines.where((l) => l.trim().isNotEmpty).join('\n'),
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+        'sync_status': 'pending',
+        'is_deleted': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<int> clearCompletedTodos(String roomId) async {
+    final db = await database;
+    final key = dataKeyForRoom(roomId);
+    final raw = await getDataValue(key);
+    if (raw.trim().isEmpty) return 0;
+
+    final lines = raw.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    final remaining = <String>[];
+    var removed = 0;
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (RegExp(r'^-\s*\[[xXO]\]').hasMatch(trimmed)) {
+        removed++;
+      } else {
+        remaining.add(line);
+      }
+    }
+    if (removed == 0) return 0;
+
+    await db.insert(
+      'data',
+      {
+        'key': key,
+        'room_id': roomId,
+        'value': remaining.join('\n'),
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+        'sync_status': 'pending',
+        'is_deleted': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return removed;
+  }
+
   static List<TodoItem> parseTodos(String markdown) {
     if (markdown.trim().isEmpty) return const [];
     final lines = markdown.split('\n');
@@ -1071,18 +1259,17 @@ class DatabaseHelper {
       }
     }
 
-    // 3. Search chat history in `messages` (newest first, excluding search commands themselves)
+    // 3. Search chat history in `messages` (only search user inputs, excluding AI responses & search commands)
     if (tokens.isNotEmpty) {
       final msgRows = await db.query(
         'messages',
-        where: "is_deleted = 0 AND role != 'divider'",
+        where: "is_deleted = 0 AND role = 'user'",
         orderBy: 'created_at DESC',
         limit: 300,
       );
       for (final row in msgRows) {
         final roomId = (row['room_id'] ?? '').toString();
         final roomTitle = roomMap[roomId]?.title ?? roomId;
-        final role = (row['role'] ?? '').toString();
         final content = (row['content'] ?? '').toString().trim();
         if (content.isEmpty) continue;
         if (content.startsWith('@搜記憶') || content.startsWith('@查記憶')) {
@@ -1094,7 +1281,7 @@ class DatabaseHelper {
             strictHits,
             roomId: roomId,
             roomTitle: roomTitle,
-            source: role == 'user' ? '你說過' : 'KODARI',
+            source: '你提過',
             snippet: content,
           );
         } else if (tokens.any(hay.contains)) {
@@ -1102,7 +1289,7 @@ class DatabaseHelper {
             looseHits,
             roomId: roomId,
             roomTitle: roomTitle,
-            source: role == 'user' ? '你說過' : 'KODARI',
+            source: '你提過',
             snippet: content,
           );
         }
@@ -1269,12 +1456,144 @@ class DatabaseHelper {
     );
   }
 
+  // ---------------- P4 Modular JIT Skills (On-Demand Loading) ----------------
+
+  Future<List<SkillRecord>> getSkills({bool onlyEnabled = false}) async {
+    final db = await database;
+    await _ensureSkillsTable(db);
+    final rows = await db.query(
+      'skills',
+      where: onlyEnabled ? 'is_deleted = 0 AND enabled = 1' : 'is_deleted = 0',
+      orderBy: 'updated_at DESC, name ASC',
+    );
+    return rows.map(SkillRecord.fromMap).toList();
+  }
+
+  Future<SkillRecord?> getSkillByNameOrId(String query) async {
+    final db = await database;
+    await _ensureSkillsTable(db);
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return null;
+
+    final exact = await db.query(
+      'skills',
+      where: '(LOWER(id) = LOWER(?) OR LOWER(name) = LOWER(?)) AND is_deleted = 0',
+      whereArgs: [trimmed, trimmed],
+      limit: 1,
+    );
+    if (exact.isNotEmpty) return SkillRecord.fromMap(exact.first);
+
+    final fuzzy = await db.query(
+      'skills',
+      where: '(name LIKE ? OR trigger_keywords LIKE ? OR description LIKE ?) AND is_deleted = 0',
+      whereArgs: ['%$trimmed%', '%$trimmed%', '%$trimmed%'],
+      limit: 1,
+    );
+    return fuzzy.isEmpty ? null : SkillRecord.fromMap(fuzzy.first);
+  }
+
+  Future<List<SkillRecord>> matchTriggeredSkills(
+    String userText, {
+    int maxCount = 2,
+  }) async {
+    final enabledSkills = await getSkills(onlyEnabled: true);
+    if (enabledSkills.isEmpty || userText.trim().isEmpty) return const [];
+    final matched = <SkillRecord>[];
+    for (final s in enabledSkills) {
+      if (s.matchesInput(userText)) {
+        matched.add(s);
+        if (matched.length >= maxCount) break;
+      }
+    }
+    return matched;
+  }
+
+  Future<SkillRecord> upsertSkill({
+    String? id,
+    required String name,
+    required List<String> triggerKeywords,
+    required String description,
+    required String contentMd,
+    bool enabled = true,
+  }) async {
+    final db = await database;
+    await _ensureSkillsTable(db);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cleanName = name.trim();
+    final cleanId = (id != null && id.trim().isNotEmpty)
+        ? id.trim()
+        : 'skill_${cleanName.replaceAll(RegExp(r'\s+'), '_')}_$now';
+    final cleanKeywords = triggerKeywords
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    await db.insert(
+      'skills',
+      {
+        'id': cleanId,
+        'name': cleanName,
+        'trigger_keywords': cleanKeywords.join(','),
+        'description': description.trim(),
+        'content_md': contentMd.trim(),
+        'enabled': enabled ? 1 : 0,
+        'updated_at': now,
+        'sync_status': 'pending',
+        'is_deleted': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    return SkillRecord(
+      id: cleanId,
+      name: cleanName,
+      triggerKeywords: cleanKeywords,
+      description: description.trim(),
+      contentMd: contentMd.trim(),
+      enabled: enabled,
+      updatedAt: now,
+    );
+  }
+
+  Future<void> toggleSkillEnabled(String id, bool enabled) async {
+    final db = await database;
+    await _ensureSkillsTable(db);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.update(
+      'skills',
+      {
+        'enabled': enabled ? 1 : 0,
+        'updated_at': now,
+        'sync_status': 'pending',
+      },
+      where: 'id = ?',
+      whereArgs: [id.trim()],
+    );
+  }
+
+  Future<void> deleteSkill(String id) async {
+    final db = await database;
+    await _ensureSkillsTable(db);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.update(
+      'skills',
+      {
+        'is_deleted': 1,
+        'updated_at': now,
+        'sync_status': 'pending',
+      },
+      where: 'id = ? OR LOWER(name) = LOWER(?)',
+      whereArgs: [id.trim(), id.trim()],
+    );
+  }
+
   // ---------------- Phase 2 Cloud Sync Engine (LWW + Tombstones) ----------------
 
   Future<int> getPendingSyncCount() async {
     final db = await database;
+    await _ensureSkillsTable(db);
     var total = 0;
-    for (final table in const ['traits', 'rooms', 'data', 'messages', 'hooks']) {
+    for (final table in const ['traits', 'rooms', 'data', 'messages', 'hooks', 'skills']) {
       final count = Sqflite.firstIntValue(
             await db.rawQuery("SELECT COUNT(*) FROM $table WHERE sync_status = 'pending'"),
           ) ??
@@ -1286,12 +1605,14 @@ class DatabaseHelper {
 
   Future<Map<String, dynamic>> exportSyncPayload({bool onlyPending = false}) async {
     final db = await database;
+    await _ensureSkillsTable(db);
     final where = onlyPending ? "sync_status = 'pending'" : null;
     final traits = await db.query('traits', where: where);
     final rooms = await db.query('rooms', where: where);
     final data = await db.query('data', where: where);
     final messages = await db.query('messages', where: where);
     final hooks = await db.query('hooks', where: where);
+    final skills = await db.query('skills', where: where);
 
     return {
       'app': 'HAKO',
@@ -1302,13 +1623,15 @@ class DatabaseHelper {
       'data': data,
       'messages': messages,
       'hooks': hooks,
+      'skills': skills,
     };
   }
 
   Future<void> markAllSynced(int syncTimestampMs) async {
     final db = await database;
+    await _ensureSkillsTable(db);
     final batch = db.batch();
-    for (final table in const ['traits', 'rooms', 'data', 'hooks']) {
+    for (final table in const ['traits', 'rooms', 'data', 'hooks', 'skills']) {
       batch.update(
         table,
         {'sync_status': 'synced'},
@@ -1413,6 +1736,22 @@ class DatabaseHelper {
       rows: payload['hooks'] as List<dynamic>? ?? const [],
       columns: ['name', 'description', 'params_json', 'body', 'updated_at', 'is_deleted'],
     );
+    await _ensureSkillsTable(db);
+    await mergeKeyedTable(
+      table: 'skills',
+      pkColumn: 'id',
+      rows: payload['skills'] as List<dynamic>? ?? const [],
+      columns: [
+        'id',
+        'name',
+        'trigger_keywords',
+        'description',
+        'content_md',
+        'enabled',
+        'updated_at',
+        'is_deleted',
+      ],
+    );
 
     // Deduplicate messages by (room_id, role, created_at, content) across devices
     final remoteMessages = payload['messages'] as List<dynamic>? ?? const [];
@@ -1468,5 +1807,197 @@ class DatabaseHelper {
     }
 
     return (upserted: upserted, deleted: deleted);
+  }
+
+  // ---------------- V2 Batch 2: Operator Flags (🚩) & Routines ----------------
+
+  Future<OperatorFlagRecord> flagMessage({
+    required int messageId,
+    required String roomId,
+    required String reason,
+    String userNote = '',
+    required String flaggedContent,
+  }) async {
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'flag_${messageId}_$now';
+    await db.insert(
+      'operator_flags',
+      {
+        'id': id,
+        'message_id': messageId,
+        'room_id': roomId,
+        'reason': reason.trim(),
+        'user_note': userNote.trim(),
+        'flagged_content': flaggedContent.trim(),
+        'reviewed': 0,
+        'lesson': '',
+        'created_at': now,
+        'updated_at': now,
+        'sync_status': 'pending',
+        'is_deleted': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return OperatorFlagRecord(
+      id: id,
+      messageId: messageId,
+      roomId: roomId,
+      reason: reason.trim(),
+      userNote: userNote.trim(),
+      flaggedContent: flaggedContent.trim(),
+      reviewed: false,
+      lesson: '',
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  Future<void> unflagMessage(int messageId) async {
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    await db.update(
+      'operator_flags',
+      {
+        'is_deleted': 1,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+        'sync_status': 'pending',
+      },
+      where: 'message_id = ?',
+      whereArgs: [messageId],
+    );
+  }
+
+  Future<Set<int>> getRoomFlaggedMessageIds(String roomId) async {
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    final rows = await db.query(
+      'operator_flags',
+      columns: ['message_id'],
+      where: 'room_id = ? AND is_deleted = 0',
+      whereArgs: [roomId],
+    );
+    return rows.map((r) => (r['message_id'] as num?)?.toInt() ?? 0).toSet();
+  }
+
+  Future<List<OperatorFlagRecord>> getOperatorFlags({bool onlyUnreviewed = false}) async {
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    final rows = await db.query(
+      'operator_flags',
+      where: onlyUnreviewed ? 'is_deleted = 0 AND reviewed = 0' : 'is_deleted = 0',
+      orderBy: 'created_at DESC',
+    );
+    return rows.map(OperatorFlagRecord.fromMap).toList();
+  }
+
+  Future<void> markFlagsReviewed({
+    required List<String> ids,
+    required String lesson,
+  }) async {
+    if (ids.isEmpty) return;
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final batch = db.batch();
+    for (final id in ids) {
+      batch.update(
+        'operator_flags',
+        {
+          'reviewed': 1,
+          'lesson': lesson.trim(),
+          'updated_at': now,
+          'sync_status': 'pending',
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<List<RoutineRecord>> getRoutines({bool onlyEnabled = false}) async {
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    final rows = await db.query(
+      'routines',
+      where: onlyEnabled ? 'is_deleted = 0 AND enabled = 1' : 'is_deleted = 0',
+      orderBy: 'updated_at DESC, title ASC',
+    );
+    return rows.map(RoutineRecord.fromMap).toList();
+  }
+
+  Future<RoutineRecord> upsertRoutine({
+    String? id,
+    required String title,
+    String body = '',
+    String mode = 'daily',
+    String timeSpec = '08:00',
+    String weekdaysCsv = '1,2,3,4,5,6',
+    bool enabled = true,
+  }) async {
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cleanId = (id != null && id.trim().isNotEmpty)
+        ? id.trim()
+        : 'routine_$now';
+    await db.insert(
+      'routines',
+      {
+        'id': cleanId,
+        'title': title.trim(),
+        'body': body.trim(),
+        'mode': mode.trim(),
+        'time_spec': timeSpec.trim(),
+        'weekdays_csv': weekdaysCsv.trim(),
+        'enabled': enabled ? 1 : 0,
+        'updated_at': now,
+        'sync_status': 'pending',
+        'is_deleted': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return RoutineRecord(
+      id: cleanId,
+      title: title.trim(),
+      body: body.trim(),
+      mode: mode.trim(),
+      timeSpec: timeSpec.trim(),
+      weekdaysCsv: weekdaysCsv.trim(),
+      enabled: enabled,
+      updatedAt: now,
+    );
+  }
+
+  Future<void> toggleRoutineEnabled(String id, bool enabled) async {
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    await db.update(
+      'routines',
+      {
+        'enabled': enabled ? 1 : 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+        'sync_status': 'pending',
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteRoutine(String id) async {
+    final db = await database;
+    await _ensureBatch2Tables(db);
+    await db.update(
+      'routines',
+      {
+        'is_deleted': 1,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+        'sync_status': 'pending',
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }

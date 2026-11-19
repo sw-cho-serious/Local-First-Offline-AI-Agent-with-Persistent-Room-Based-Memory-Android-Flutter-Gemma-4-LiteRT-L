@@ -116,7 +116,8 @@ class CloudSyncService extends ChangeNotifier {
           (pendingPayload['rooms'] as List).length +
           (pendingPayload['data'] as List).length +
           (pendingPayload['messages'] as List).length +
-          (pendingPayload['hooks'] as List).length;
+          (pendingPayload['hooks'] as List).length +
+          ((pendingPayload['skills'] as List?)?.length ?? 0);
 
       final bodyMap = <String, dynamic>{
         'action': 'sync',
@@ -218,6 +219,56 @@ class CloudSyncService extends ChangeNotifier {
     final res = await _db.mergeRemoteSyncPayload(decoded);
     await refreshPendingCount();
     return res;
+  }
+
+  /// V2 Batch 2 & 3: Independent non-blocking compressed photo upload to GAS Drive.
+  /// Strictly requires [createTodo: true] (e.g. annotated dimension photos or pinned items)
+  /// to create a todo item, so casual chat photos (like lunch/dinner) NEVER pollute todos.
+  Future<({bool ok, String? driveUrl, String? error})> uploadPhotoNonBlocking({
+    required String roomId,
+    required String roomTitle,
+    required Uint8List jpegBytes,
+    String note = '',
+    bool createTodo = false,
+  }) async {
+    if (!isConfigured || jpegBytes.isEmpty) {
+      return (ok: false, driveUrl: null, error: '尚未綁定 GAS 閘道');
+    }
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final responseJson = await _postToGas(
+        Uri.parse(_gasUrl),
+        {
+          'action': 'upload_photo',
+          'token': _syncToken,
+          'room_id': roomId,
+          'room_title': roomTitle,
+          'file_name': 'hako_${roomId.replaceAll(RegExp(r'[^\w\-]'), '_')}_$now.jpg',
+          'note': note.trim(),
+          'create_todo': createTodo,
+          'base64_jpg': base64Encode(jpegBytes),
+        },
+      );
+      if (responseJson['ok'] != true) {
+        return (
+          ok: false,
+          driveUrl: null,
+          error: responseJson['error']?.toString() ?? 'Drive 上傳失敗',
+        );
+      }
+      final driveUrl = (responseJson['drive_url'] ?? '').toString().trim();
+      if (driveUrl.isNotEmpty && createTodo) {
+        final label = note.trim().isEmpty ? '現場實拍照' : note.trim();
+        await _db.upsertTodoItem(
+          roomId: roomId,
+          itemText: '📷 $label（Drive備份：$driveUrl）',
+        );
+        scheduleDebouncedPush();
+      }
+      return (ok: true, driveUrl: driveUrl, error: null);
+    } catch (e) {
+      return (ok: false, driveUrl: null, error: e.toString());
+    }
   }
 
   @override

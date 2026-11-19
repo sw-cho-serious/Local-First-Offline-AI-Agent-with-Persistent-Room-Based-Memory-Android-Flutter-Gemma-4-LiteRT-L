@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -12,12 +11,12 @@ import '../../data/database_helper.dart';
 import '../../data/models.dart';
 import '../../engine/llm_engine.dart';
 import '../../sync/cloud_sync_service.dart';
-import '../../tools/gpx_parser.dart';
 import '../../tools/native_actions.dart';
 import '../../tools/tool_registry.dart';
 import '../../tools/tts_service.dart';
 import '../widgets/action_card_widget.dart';
 import '../widgets/album_scanner_sheet.dart';
+import '../widgets/kodari_floating_nub.dart';
 import '../widgets/modals.dart';
 import '../widgets/photo_annotator_dialog.dart';
 import '../widgets/spirit_avatar.dart';
@@ -38,16 +37,19 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _inputController = TextEditingController();
+  final FocusNode _inputFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final ImagePicker _picker = ImagePicker();
+  final KodariFloatingNubController _nubController = KodariFloatingNubController();
 
   List<RoomRecord> _rooms = [];
   String _currentRoomId = 'main';
   List<TodoItem> _currentTodos = [];
   List<ChatMessageRecord> _messages = [];
+  Set<int> _flaggedMessageIds = {};
   int _pendingMemoCount = 0;
   int _contextTokens = 0;
 
@@ -56,6 +58,12 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isGenerating = false;
   bool _sendingLock = false;
   bool _isListeningVoice = false;
+  String _voicePartialText = '';
+  double _voiceRmsLevel = 0.0;
+  bool _inAppNubEnabled = false;
+  bool _flashlightOn = false;
+  List<String> _wheelSlots = WheelActionRegistry.defaultSlots;
+  int? _expandedPinMessageId;
   String _streamingText = '';
   String? _streamingPill;
   ActionCardData? _streamingCard;
@@ -81,11 +89,125 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _lastSeenSyncAtMs = widget.syncService.lastSyncAtMs;
     widget.syncService.addListener(_onSyncServiceChanged);
     _loadAllData();
     unawaited(_recoverLostCameraImage());
     unawaited(TtsService.instance.initialize());
+    unawaited(_initFloatingAndNativeHooks());
+  }
+
+  Future<void> _initFloatingAndNativeHooks() async {
+    final inApp = await FloatingOverlayPreferences.getInAppNubEnabled();
+    final ghost = await FloatingOverlayPreferences.getGhostOverlayEnabled();
+    final shake = await FloatingOverlayPreferences.getShakeToWakeEnabled();
+    final slots = await FloatingOverlayPreferences.getWheelSlots();
+    if (mounted) {
+      setState(() {
+        _inAppNubEnabled = inApp;
+        _wheelSlots = slots;
+      });
+    }
+    unawaited(NativeActions.setGhostWheelSlots(slots));
+    NativeActions.setSpeechUiCallbacks(
+      onPartial: (partial) {
+        if (!mounted || !_isListeningVoice) return;
+        setState(() => _voicePartialText = partial);
+      },
+      onRms: (rms) {
+        if (!mounted || !_isListeningVoice) return;
+        setState(() => _voiceRmsLevel = rms);
+      },
+    );
+    NativeActions.setOnGhostActionCallback(_handleGhostLaunchAction);
+    NativeActions.setOnShakeWakeCallback(() async {
+      if (!mounted || _isGenerating || _isListeningVoice) return;
+      _showToast('🫨 搖晃喚醒語音指令');
+      await _startVoiceInput();
+    });
+    unawaited(NativeActions.setShakeToWakeEnabled(shake));
+    if (ghost) {
+      unawaited(NativeActions.setGhostOverlayEnabled(true));
+    }
+    final pendingAction = await NativeActions.consumePendingLaunchAction();
+    if (pendingAction != null && pendingAction.isNotEmpty) {
+      unawaited(_handleGhostLaunchAction(pendingAction));
+    }
+  }
+
+  Future<void> _reloadFloatingPrefs() async {
+    final inApp = await FloatingOverlayPreferences.getInAppNubEnabled();
+    final slots = await FloatingOverlayPreferences.getWheelSlots();
+    if (!mounted) return;
+    setState(() {
+      _inAppNubEnabled = inApp;
+      _wheelSlots = slots;
+    });
+  }
+
+  Future<void> _handleGhostLaunchAction(String action) async {
+    if (!mounted) return;
+    if (_rooms.isEmpty) {
+      await _loadAllData();
+      if (!mounted) return;
+    }
+    if (action == 'com.weilong.xiaoliu.ACTION_OPEN_WHEEL') {
+      _nubController.openWheel();
+    } else if (action == 'com.weilong.xiaoliu.ACTION_VOICE_DIRECT') {
+      if (!_isGenerating && !_isListeningVoice) {
+        await _startVoiceInput();
+      }
+    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_ROOMS') {
+      _openRoomsFromNub();
+    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_TODOS') {
+      _openTodosFromNub();
+    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_CAMERA') {
+      _showPhotoPickerSheet();
+    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_NAV') {
+      await _showNavigationQuickSheet();
+    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_CUTTING') {
+      await showOfflineLookupModal(
+        context: context,
+        db: widget.db,
+        onToast: _showToast,
+      );
+    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_TEXT') {
+      _inputFocusNode.requestFocus();
+    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_ROUTINES') {
+      await showRoutineSchedulerModal(
+        context: context,
+        db: widget.db,
+        onToast: _showToast,
+      );
+    } else if (action.startsWith('com.weilong.xiaoliu.ACTION_SPOKEN_TEXT::')) {
+      final spoken = action
+          .substring('com.weilong.xiaoliu.ACTION_SPOKEN_TEXT::'.length)
+          .trim();
+      if (spoken.isEmpty) return;
+      final normalized = ToolRegistry.normalizeSpokenCommand(spoken);
+      _inputController.text = normalized;
+      _inputController.selection = TextSelection.fromPosition(
+        TextPosition(offset: normalized.length),
+      );
+      await _sendMessage();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Run deferred 🚩 flagged self-reflection when screen turns off / app goes to background
+    if (state == AppLifecycleState.paused) {
+      unawaited(widget.engine.runIdleFlaggedReflection(forceManual: false));
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshAfterBackgroundResume());
+    }
+  }
+
+  Future<void> _refreshAfterBackgroundResume() async {
+    if (!mounted) return;
+    await _loadRoomContent(_currentRoomId);
+    unawaited(widget.syncService.refreshPendingCount());
   }
 
   Future<void> _recoverLostCameraImage() async {
@@ -113,12 +235,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.syncService.removeListener(_onSyncServiceChanged);
+    NativeActions.setOnGhostActionCallback(null);
+    NativeActions.setOnShakeWakeCallback(null);
+    NativeActions.setSpeechUiCallbacks();
     _idleTimer?.cancel();
     _topToastTimer?.cancel();
     _streamSub?.cancel();
     _inputController.dispose();
+    _inputFocusNode.dispose();
     _scrollController.dispose();
+    _nubController.dispose();
     super.dispose();
   }
 
@@ -143,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     final todos = await widget.db.getRoomTodos(room.roomId);
     final msgs = await widget.db.getMessages(room.roomId);
+    final flaggedIds = await widget.db.getRoomFlaggedMessageIds(room.roomId);
     final memo = await widget.db.getGlobalPendingMemo();
     final traits = await widget.db.getAllTraits();
 
@@ -175,11 +304,38 @@ class _HomeScreenState extends State<HomeScreen> {
       _currentRoomId = room.roomId;
       _currentTodos = todos;
       _messages = msgs;
+      _flaggedMessageIds = flaggedIds;
       _pendingMemoCount = memo.totalCount;
       _contextTokens = estimatedTokens;
       _liveSpiritState = _isGenerating ? _liveSpiritState : room.avatarState;
     });
     _scrollToBottom();
+  }
+
+  Future<void> _uploadPhotoInBackground({
+    required String roomId,
+    required Uint8List bytes,
+    String note = '',
+    bool createTodo = false,
+  }) async {
+    if (!widget.syncService.isConfigured || bytes.isEmpty) return;
+    final roomTitle = _rooms
+        .firstWhere((r) => r.roomId == roomId, orElse: () => _rooms.first)
+        .title;
+    final res = await widget.syncService.uploadPhotoNonBlocking(
+      roomId: roomId,
+      roomTitle: roomTitle,
+      jpegBytes: bytes,
+      note: note,
+      createTodo: createTodo,
+    );
+    if (!mounted) return;
+    if (res.ok) {
+      if (createTodo && _currentRoomId == roomId) {
+        await _loadRoomContent(roomId);
+      }
+      _showToast(createTodo ? '☁️ 標註照已存入 Drive 並回填待辦' : '☁️ 照片已背景備份 Drive');
+    }
   }
 
   void _scrollToBottom() {
@@ -346,8 +502,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       final file = await _picker.pickImage(
         source: source,
-        maxWidth: 1280,
-        maxHeight: 1280,
+        maxWidth: 1568,
+        maxHeight: 1568,
         imageQuality: 85,
       );
       if (file == null) return;
@@ -446,6 +602,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     await widget.db.upsertTodoItem(roomId: targetRoomId, itemText: summaryLine);
     widget.syncService.scheduleDebouncedPush();
+    try {
+      final bytes = await File(result.savedPath).readAsBytes();
+      unawaited(_uploadPhotoInBackground(
+        roomId: targetRoomId,
+        bytes: bytes,
+        note: summaryLine,
+      ));
+    } catch (_) {}
     await _loadRoomContent(_currentRoomId);
     _showToast('📏 標註照片已合成存入「${_rooms.firstWhere((r) => r.roomId == targetRoomId, orElse: () => _rooms.first).title}」');
   }
@@ -496,8 +660,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       final picked = await _picker.pickImage(
         source: chosenSource,
-        maxWidth: 1600,
-        maxHeight: 1600,
+        maxWidth: 1568,
+        maxHeight: 1568,
         imageQuality: 90,
       );
       if (picked == null) return;
@@ -530,6 +694,11 @@ class _HomeScreenState extends State<HomeScreen> {
             imagePath: item.compressed.savedPath,
             toolPill: '🖼️ 相簿批次歸檔',
           );
+          unawaited(_uploadPhotoInBackground(
+            roomId: targetRoomId,
+            bytes: item.compressed.bytes,
+            note: item.caption,
+          ));
         }
         await widget.db.upsertTodoItem(
           roomId: targetRoomId,
@@ -545,74 +714,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _importGpxFile() async {
-    try {
-      final picked = await FilePicker.pickFile(
-        dialogTitle: '選取 Garmin .gpx 航點檔',
-        type: FileType.any,
-      );
-      final filePath = picked?.path;
-      if (filePath == null) return;
-
-      final xml = await File(filePath).readAsString();
-      final points = GpxParser.parse(xml);
-      if (points.isEmpty) {
-        _showToast('⚠️ 這份檔案裡沒有解析到 GPX 航點（請確認為 .gpx 檔）');
-        return;
-      }
-
-      const maxTodos = 25;
-      final savedList = points.take(maxTodos).toList();
-      for (final wp in savedList) {
-        final eleStr = wp.elevation != null ? ' 海拔${wp.elevation!.round()}m' : '';
-        final noteStr = wp.note.isNotEmpty ? ' (${wp.note})' : '';
-        await widget.db.upsertTodoItem(
-          roomId: _currentRoomId,
-          itemText: '📍 [${wp.name}] ${wp.coordsText}$eleStr$noteStr ${wp.googleMapsUrl}',
-        );
-      }
-
-      final first = points.first;
-      final card = ActionCardData(
-        type: 'location',
-        badge: '🧭 Garmin GPX 匯入（共 ${points.length} 點）',
-        title: '代表航點：${first.name} (${first.coordsText})',
-        rows: [
-          for (final wp in points.take(5))
-            '• ${wp.name}：${wp.coordsText}${wp.note.isNotEmpty ? ' · ${wp.note}' : ''}',
-          if (points.length > 5) '…其餘已一併存入本房待辦清單',
-        ],
-        buttonLabel: '🗺️ 開啟第一個航點導航',
-        payload: {
-          'lat': first.lat,
-          'lng': first.lng,
-          'label': first.name,
-          'copyText': points
-              .take(15)
-              .map((p) => '${p.name}: ${p.coordsText} ${p.googleMapsUrl}')
-              .join('\n'),
-        },
-      );
-
-      await widget.db.insertMessage(
-        roomId: _currentRoomId,
-        role: 'model',
-        content: '已經從 Garmin `.gpx` 離線解析並匯入 ${points.length} 個航點進這間房的待辦清單：',
-        toolPill: '🧭 GPX 匯入：${points.length} 個航點',
-        cardJson: card.toJsonString(),
-      );
-      widget.syncService.scheduleDebouncedPush();
-      await _loadRoomContent(_currentRoomId);
-      _showToast('🧭 已匯入 ${points.length} 個 GPX 航點');
-    } catch (e) {
-      _showToast('❌ GPX 匯入失敗：$e');
-    }
-  }
-
   Future<void> _startVoiceInput() async {
     if (_isGenerating || _isListeningVoice) return;
+    final granted = await NativeActions.ensureMicrophonePermission();
+    if (!mounted) return;
+    if (!granted) {
+      _showToast('🎙️ 請先允許麥克風權限以使用無彈窗語音');
+      return;
+    }
     _prewarmOnInteraction();
-    setState(() => _isListeningVoice = true);
+    setState(() {
+      _voicePartialText = '';
+      _voiceRmsLevel = 0.0;
+      _isListeningVoice = true;
+    });
     try {
       final spoken = await NativeActions.listenSpeech();
       if (!mounted) return;
@@ -627,8 +742,291 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       await _sendMessage();
     } finally {
-      if (mounted) setState(() => _isListeningVoice = false);
+      if (mounted) {
+        setState(() {
+          _isListeningVoice = false;
+          _voicePartialText = '';
+          _voiceRmsLevel = 0.0;
+        });
+      }
     }
+  }
+
+  Future<void> _runCompactCommand() async {
+    _showToast('✂️ 正在壓縮本房對話並刷新 KV-Cache...');
+    final res = await widget.engine.forceCompactRoom(_currentRoomId);
+    await widget.db.insertMessage(
+      roomId: _currentRoomId,
+      role: 'model',
+      content: res.compacted
+          ? '✂️ 已手動執行對話濃縮壓縮（Token 佔用：${res.beforeTokens} → ${res.afterTokens}），KV-Cache 已重新保持清爽！'
+          : '✂️ 本房目前已經是最新精簡狀態（${res.beforeTokens} tok），已順手清空過期 KV-Cache。',
+      toolPill: '✂️ /compact 壓縮完成',
+    );
+    widget.syncService.scheduleDebouncedPush();
+    await _loadRoomContent(_currentRoomId);
+  }
+
+  Future<void> _handleInAppWheelAction(String actionId) async {
+    switch (actionId) {
+      case 'torch':
+        await _toggleFlashlightQuick();
+        return;
+      case 'location_share':
+        _showToast('🛰️ 正在抓取現場 GPS 座標…');
+        final loc = await NativeActions.getCurrentLocation();
+        if (!mounted) return;
+        if (!loc.ok || loc.lat == null || loc.lng == null) {
+          _showToast('⚠️ 無法取得 GPS：${loc.reason ?? ''}');
+          return;
+        }
+        final copyText = '📍 現場座標\n座標：${loc.coordsText}\n地圖：${loc.googleMapsUrl}';
+        await Clipboard.setData(ClipboardData(text: copyText));
+        await widget.db.upsertTodoItem(
+          roomId: _currentRoomId,
+          itemText: '📍 [報位] ${loc.coordsText} ${loc.googleMapsUrl}',
+        );
+        widget.syncService.scheduleDebouncedPush();
+        await _loadRoomContent(_currentRoomId);
+        _showToast('📍 座標已複製到剪貼簿並記進待辦');
+        return;
+      case 'clipboard_memo':
+        final clipData = await Clipboard.getData(Clipboard.kTextPlain);
+        final raw = clipData?.text?.trim() ?? '';
+        if (!mounted) return;
+        if (raw.isEmpty) {
+          _showToast('📋 剪貼簿目前沒有文字');
+          return;
+        }
+        await widget.db.upsertTodoItem(
+          roomId: _currentRoomId,
+          itemText: raw.replaceAll('\n', ' / '),
+        );
+        widget.syncService.scheduleDebouncedPush();
+        await _loadRoomContent(_currentRoomId);
+        _showToast('📋 已從剪貼簿存入待辦');
+        return;
+      case 'voice_memo':
+        if (!_isGenerating && !_isListeningVoice) {
+          await _startVoiceInput();
+        }
+        return;
+      case 'latest_photo':
+        _showPhotoPickerSheet();
+        return;
+      case 'todo_peek':
+        _openTodosFromNub();
+        return;
+      case 'next_routine':
+        await showRoutineSchedulerModal(
+          context: context,
+          db: widget.db,
+          onToast: _showToast,
+        );
+        return;
+      case 'quick_timer':
+        await _showQuickTimerPickerDialog();
+        return;
+      case 'weather_douliu':
+        _inputController.text = '@查網 雲林斗六今日天氣風速';
+        await _sendMessage();
+        return;
+      case 'refresh_boards':
+        _inputController.text = '@找支援 REFRESH_ALL_BOARDS 刷新雙戰情板';
+        await _sendMessage();
+        return;
+      case 'open_cutting':
+      case 'calculator':
+        await showOfflineLookupModal(
+          context: context,
+          db: widget.db,
+          onToast: _showToast,
+        );
+        return;
+      case 'open_rooms':
+        _openRoomsFromNub();
+        return;
+      case 'open_text':
+        _inputFocusNode.requestFocus();
+        return;
+    }
+  }
+
+  Future<void> _showQuickTimerPickerDialog() async {
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1E26),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: const Color(0xFFF59E0B).withValues(alpha: 0.45)),
+        ),
+        title: const Text('⏱️ 快速現場倒數計時', style: TextStyle(color: Color(0xFFFCD34D), fontSize: 15)),
+        content: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final mins in const [10, 15, 30, 60])
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(color: const Color(0xFFF59E0B).withValues(alpha: 0.55)),
+                ),
+                onPressed: () async {
+                  Navigator.of(ctx).pop();
+                  await NativeActions.setTimerOrAlarm(
+                    mode: 'timer',
+                    minutes: mins,
+                    message: 'KODARI 現場計時 ($mins分)',
+                  );
+                  _showToast('⏱️ 已設定 $mins 分鐘倒數計時');
+                },
+                child: Text(mins == 60 ? '1 小時' : '$mins 分鐘'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleFlashlightQuick() async {
+    final nextOn = !_flashlightOn;
+    final res = await NativeActions.setFlashlight(nextOn);
+    if (!mounted) return;
+    if (res['ok'] == true) {
+      setState(() => _flashlightOn = nextOn);
+      _showToast(nextOn ? '🔦 手電筒已開啟' : '🔦 手電筒已關閉');
+    } else {
+      _showToast('⚠️ 手電筒切換失敗：${res['reason'] ?? ''}');
+    }
+  }
+
+  void _openRoomsFromNub() {
+    if (_scaffoldKey.currentState?.hasDrawer ?? false) {
+      _scaffoldKey.currentState?.openDrawer();
+      return;
+    }
+    setState(() => _taskDrawerExpanded = !_taskDrawerExpanded);
+    _showToast('📂 左側即為工作房間總覽');
+  }
+
+  void _openTodosFromNub() {
+    showPendingMemoInboxModal(
+      context: context,
+      db: widget.db,
+      onJumpToRoom: _switchRoom,
+      onDataChanged: () {
+        widget.syncService.scheduleDebouncedPush();
+        _loadRoomContent(_currentRoomId);
+      },
+      onToast: _showToast,
+    );
+  }
+
+  Future<void> _showNavigationQuickSheet() async {
+    final destCtrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1E26),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: const Color(0xFFF59E0B).withValues(alpha: 0.45)),
+        ),
+        title: const Text('🧭 導航與現場 GPS 標點', style: TextStyle(color: Colors.white, fontSize: 15)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF6EE7B7),
+                  side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.5)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+                icon: const Icon(Icons.my_location, size: 18),
+                label: const Text('📍 抓取目前 GPS 座標存入本房'),
+                onPressed: () async {
+                  Navigator.of(ctx).pop();
+                  _showToast('📡 正在定位衛星 GPS 座標...');
+                  final loc = await NativeActions.getCurrentLocation();
+                  if (!mounted) return;
+                  if (!loc.ok || loc.lat == null || loc.lng == null) {
+                    _showToast('⚠️ 無法取得 GPS：${loc.reason ?? ''}');
+                    return;
+                  }
+                  final line = '📍 現場定位：${loc.coordsText} ${loc.googleMapsUrl}';
+                  await widget.db.upsertTodoItem(roomId: _currentRoomId, itemText: line);
+                  await widget.db.insertMessage(
+                    roomId: _currentRoomId,
+                    role: 'model',
+                    content: '已記下目前衛星座標（誤差約 ${loc.accuracy?.round() ?? '-'}m）：\n$line',
+                    toolPill: '📍 GPS 標點完成',
+                    cardJson: ActionCardData(
+                      type: 'location',
+                      badge: '📍 離線衛星定位',
+                      title: loc.coordsText,
+                      rows: ['誤差：${loc.accuracy?.round() ?? '-'} 公尺 • 已寫入本房待辦'],
+                      buttonLabel: '🗺️ 在 Google Maps 查看',
+                      payload: {'lat': loc.lat, 'lng': loc.lng, 'label': _currentRoom?.title ?? '現場'},
+                    ).toJsonString(),
+                  );
+                  widget.syncService.scheduleDebouncedPush();
+                  await _loadRoomContent(_currentRoomId);
+                  _showToast('📍 GPS 座標已存進本房');
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: destCtrl,
+              autofocus: true,
+              style: const TextStyle(color: Colors.white, fontSize: 13.5),
+              decoration: InputDecoration(
+                hintText: '輸入目的地或案場（如 斗六工業區）',
+                hintStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 12.5),
+                filled: true,
+                fillColor: const Color(0xFF0E1014),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onSubmitted: (v) async {
+                final q = v.trim();
+                if (q.isEmpty) return;
+                Navigator.of(ctx).pop();
+                await NativeActions.openMapQuery(q);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消', style: TextStyle(color: Color(0xFF9CA3AF))),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF59E0B),
+              foregroundColor: const Color(0xFF111317),
+            ),
+            icon: const Icon(Icons.directions, size: 17),
+            label: const Text('Google Maps 導航'),
+            onPressed: () async {
+              final q = destCtrl.text.trim();
+              if (q.isEmpty) {
+                _showToast('請輸入目的地名稱或路名');
+                return;
+              }
+              Navigator.of(ctx).pop();
+              await NativeActions.openMapQuery(q);
+            },
+          ),
+        ],
+      ),
+    );
+    destCtrl.dispose();
   }
 
   Future<void> _sendMessage() async {
@@ -642,6 +1040,34 @@ class _HomeScreenState extends State<HomeScreen> {
     final image = _pendingImage;
     final usedTool = _mountedTool;
     if (text.isEmpty && image == null && usedTool == null) return;
+
+    // V2 Batch 2 slash self-rescue commands: /compact & /reflect
+    if (usedTool == null && image == null) {
+      final lower = text.toLowerCase();
+      if (lower == '/compact' || text == '@壓縮') {
+        _inputController.clear();
+        await _runCompactCommand();
+        return;
+      }
+      if (lower == '/reflect' || text == '@自省') {
+        _inputController.clear();
+        final res = await widget.engine.runIdleFlaggedReflection(forceManual: true);
+        if (res.reviewedCount > 0) {
+          await widget.db.insertMessage(
+            roomId: _currentRoomId,
+            role: 'model',
+            content: '🚩 已手動自省檢討 ${res.reviewedCount} 筆現場插旗糾錯，並將準則永久沉澱進 MEMORY.md：\n${res.lesson}',
+            toolPill: '🚩 自省寫入 MEMORY.md',
+          );
+          widget.syncService.scheduleDebouncedPush();
+          await _loadRoomContent(_currentRoomId);
+          _showToast('🚩 已寫入 MEMORY.md（共檢討 ${res.reviewedCount} 筆）');
+        } else {
+          _showToast('🚩 目前沒有尚未反省的插旗紀錄');
+        }
+        return;
+      }
+    }
 
     // Intercept interactive P3 tools so tapping Send launches native UI right away.
     final leadingMatch =
@@ -669,16 +1095,6 @@ class _HomeScreenState extends State<HomeScreen> {
         await _openAlbumScanner();
         return;
       }
-      if (activeOpt.toolName == 'location_tool' &&
-          (cleanArg.toLowerCase().contains('gpx') || cleanArg.contains('匯入'))) {
-        _inputController.clear();
-        setState(() {
-          _atMenuVisible = false;
-          if (!_isToolPinned) _mountedTool = null;
-        });
-        await _importGpxFile();
-        return;
-      }
     }
 
     if (text.isEmpty && image == null) return;
@@ -704,6 +1120,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final roomIdForTurn = _currentRoomId;
       final Uint8List? imgBytes = image?.bytes;
+      if (imgBytes != null && imgBytes.isNotEmpty) {
+        unawaited(_uploadPhotoInBackground(
+          roomId: roomIdForTurn,
+          bytes: imgBytes,
+          note: text,
+        ));
+      }
 
       setState(() {
         _pendingImage = null;
@@ -1132,6 +1555,33 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
+                if (_inAppNubEnabled || _isListeningVoice || _nubController.wheelOpen)
+                  Positioned.fill(
+                    child: KodariFloatingNub(
+                      controller: _nubController,
+                      isListeningVoice: _isListeningVoice,
+                      isGenerating: _isGenerating,
+                      flashlightOn: _flashlightOn,
+                      wheelSlots: _wheelSlots,
+                      onExecuteAction: (id) => unawaited(_handleInAppWheelAction(id)),
+                      onStartVoiceInput: _startVoiceInput,
+                      onOpenCamera: _showPhotoPickerSheet,
+                      onOpenTodos: _openTodosFromNub,
+                      onOpenRooms: _openRoomsFromNub,
+                      onOpenNavigation: _showNavigationQuickSheet,
+                      onOpenCuttingHelper: () => showOfflineLookupModal(
+                        context: context,
+                        db: widget.db,
+                        onToast: _showToast,
+                      ),
+                      onToggleFlashlight: _toggleFlashlightQuick,
+                      onOpenTextInput: () => _inputFocusNode.requestFocus(),
+                      voicePartialText: _voicePartialText,
+                      voiceRmsLevel: _voiceRmsLevel,
+                      onCancelVoice: () => unawaited(NativeActions.cancelSpeechListening()),
+                      onFinishVoice: () => unawaited(NativeActions.stopSpeechListening()),
+                    ),
+                  ),
                 if (_topToastMsg != null)
                   Positioned(
                     top: 10,
@@ -1371,7 +1821,10 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: () => showModelSettingsModal(
                 context: context,
                 engine: widget.engine,
-                onStateChanged: () => setState(() {}),
+                onStateChanged: () {
+                  setState(() {});
+                  unawaited(_reloadFloatingPrefs());
+                },
                 onToast: _showToast,
               ),
               child: Column(
@@ -1400,9 +1853,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-                  Builder(
-                    builder: (_) {
-                      final ratio = _contextTokens / TokenEstimator.maxContextTokens;
+                  InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () {
+                      unawaited(_runCompactCommand());
+                    },
+                    child: Builder(
+                      builder: (_) {
+                        final maxCap = widget.engine.effectiveMaxContextTokens;
+                      final ratio = _contextTokens / maxCap;
                       final Color meterColor;
                       if (ratio > 0.85) {
                         meterColor = const Color(0xFFFB7185);
@@ -1412,6 +1871,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         meterColor = const Color(0xFF9CA3AF);
                       }
                       final compact = TokenEstimator.formatCompact(_contextTokens);
+                      final maxCompact = TokenEstimator.formatCompact(maxCap);
                       final shortEngine = widget.engine.activeBackendLabel
                           .replaceFirst('Gemma-4-', '')
                           .replaceAll(' ', '');
@@ -1423,7 +1883,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
                             ),
                             TextSpan(
-                              text: '$compact/8.0k${ratio > 0.85 ? ' ✂️' : ''}',
+                              text: '$compact/$maxCompact${ratio > 0.85 ? ' ✂️' : ''}',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: meterColor,
@@ -1436,7 +1896,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
-                ],
+                ),
+              ],
               ),
             ),
           ),
@@ -1620,10 +2081,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   await showTraitsEditorModal(
                     context: context,
                     db: widget.db,
+                    engine: widget.engine,
+                    roomId: _currentRoomId,
+                    onDataChanged: () => unawaited(_loadRoomContent(_currentRoomId)),
+                    onToast: _showToast,
+                  );
+                  await widget.engine.invalidateSession();
+                  widget.syncService.scheduleDebouncedPush();
+                  await _loadRoomContent(_currentRoomId);
+                  break;
+                case 'routines':
+                  await showRoutineSchedulerModal(
+                    context: context,
+                    db: widget.db,
                     onToast: _showToast,
                   );
                   widget.syncService.scheduleDebouncedPush();
-                  await _loadRoomContent(_currentRoomId);
                   break;
                 case 'tts_settings':
                   await showTtsSettingsModal(
@@ -1631,22 +2104,25 @@ class _HomeScreenState extends State<HomeScreen> {
                     onToast: _showToast,
                   );
                   break;
-                case 'hooks':
-                  await showHookManagerModal(
+                case 'skills':
+                  await showSkillManagerModal(
                     context: context,
                     db: widget.db,
-                    onChanged: () => widget.syncService.scheduleDebouncedPush(),
+                    onChanged: () {
+                      unawaited(widget.engine.invalidateSession());
+                      widget.syncService.scheduleDebouncedPush();
+                    },
                     onToast: _showToast,
                   );
-                  break;
-                case 'gpx_import':
-                  await _importGpxFile();
                   break;
                 case 'settings':
                   await showModelSettingsModal(
                     context: context,
                     engine: widget.engine,
-                    onStateChanged: () => setState(() {}),
+                    onStateChanged: () {
+                  setState(() {});
+                  unawaited(_reloadFloatingPrefs());
+                },
                     onToast: _showToast,
                   );
                   break;
@@ -1654,8 +2130,8 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             itemBuilder: (ctx) => [
               const PopupMenuItem(value: 'lookup', child: Text('🔍 離線快查（鋁料／調機）', style: TextStyle(color: Color(0xFFFCD34D), fontSize: 13))),
-              const PopupMenuItem(value: 'hooks', child: Text('🧩 技能 Hook 擴充管理', style: TextStyle(color: Color(0xFFC084FC), fontSize: 13))),
-              const PopupMenuItem(value: 'gpx_import', child: Text('🧭 匯入 Garmin .gpx 航點', style: TextStyle(color: Color(0xFF34D399), fontSize: 13))),
+              const PopupMenuItem(value: 'routines', child: Text('⏰ 零算力日常排程', style: TextStyle(color: Color(0xFFF59E0B), fontSize: 13))),
+              const PopupMenuItem(value: 'skills', child: Text('📜 Skill 知識包管理', style: TextStyle(color: Color(0xFFF472B6), fontSize: 13))),
               const PopupMenuItem(value: 'new_topic', child: Text('✂️ 開始新話題（不刪歷史）', style: TextStyle(color: Colors.white, fontSize: 13))),
               const PopupMenuItem(value: 'new_room', child: Text('➕ 建立新工作房間', style: TextStyle(color: Colors.white, fontSize: 13))),
               if (!room.isMain && !room.isArchived)
@@ -1674,10 +2150,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildTaskSummaryStrip() {
     final pct = (DatabaseHelper.calculateProgress(_currentTodos) * 100).round();
-    final nextTodo = _currentTodos.firstWhere(
-      (t) => !t.done,
-      orElse: () => _currentTodos.last,
-    );
+    final pendingTodos = _currentTodos.where((t) => !t.done).toList();
+    final completedCount = _currentTodos.length - pendingTodos.length;
+    final stripTitle = pendingTodos.isNotEmpty
+        ? pendingTodos.first.text
+        : '🎉 已完成 ${_currentTodos.length} 項待辦（點此展開或清除）';
 
     return Container(
       decoration: BoxDecoration(
@@ -1724,11 +2201,40 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      nextTodo.text,
-                      style: const TextStyle(fontSize: 12.5, color: Color(0xFFD1D5DB)),
+                      stripTitle,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: pendingTodos.isNotEmpty
+                            ? const Color(0xFFD1D5DB)
+                            : const Color(0xFF6EE7B7),
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  if (completedCount > 0)
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () async {
+                        final removed = await widget.db.clearCompletedTodos(_currentRoomId);
+                        if (removed > 0) {
+                          widget.syncService.scheduleDebouncedPush();
+                          await _loadRoomContent(_currentRoomId);
+                          _showToast('🧹 已清除 $removed 項已完成待辦');
+                        }
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '🧹 清除($completedCount)',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFFD1D5DB)),
+                        ),
+                      ),
+                    ),
                   Icon(
                     _taskDrawerExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
                     color: const Color(0xFF9CA3AF),
@@ -1762,6 +2268,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         decoration: todo.done ? TextDecoration.lineThrough : null,
                       ),
                     ),
+                    secondary: IconButton(
+                      icon: const Icon(Icons.close, size: 16, color: Color(0xFF6B7280)),
+                      tooltip: '刪除此待辦',
+                      onPressed: () async {
+                        await widget.db.deleteTodoAtIndex(_currentRoomId, todo.lineIndex);
+                        widget.syncService.scheduleDebouncedPush();
+                        await _loadRoomContent(_currentRoomId);
+                        _showToast('🗑️ 已刪除待辦項目');
+                      },
+                    ),
                     onChanged: (_) async {
                       await widget.db.toggleTodoAtIndex(_currentRoomId, todo.lineIndex);
                       widget.syncService.scheduleDebouncedPush();
@@ -1778,52 +2294,68 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildChatFeed(RoomRecord room) {
     final totalCount = _messages.length + (_isGenerating ? 1 : 0);
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      itemCount: totalCount,
-      itemBuilder: (context, index) {
-        if (_isGenerating && index == _messages.length) {
-          return _buildModelBubble(
-            room: room,
-            text: _streamingText.isEmpty ? '正在想…' : _streamingText,
-            pill: _streamingPill,
-            card: _streamingCard,
-            msgRecord: null,
-          );
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () {
+        if (_expandedPinMessageId != null) {
+          setState(() => _expandedPinMessageId = null);
         }
-
-        final msg = _messages[index];
-        if (msg.role == 'divider') {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.12))),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Text(
-                    msg.content,
-                    style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7280)),
-                  ),
-                ),
-                Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.12))),
-              ],
-            ),
-          );
-        }
-
-        if (msg.role == 'user') {
-          return _buildUserBubble(msg);
-        }
-        return _buildModelBubble(
-          room: room,
-          text: msg.content,
-          pill: msg.toolPill,
-          card: msg.card,
-          msgRecord: msg,
-        );
       },
+      child: NotificationListener<ScrollStartNotification>(
+        onNotification: (_) {
+          if (_expandedPinMessageId != null) {
+            setState(() => _expandedPinMessageId = null);
+          }
+          return false;
+        },
+        child: ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          itemCount: totalCount,
+          itemBuilder: (context, index) {
+            if (_isGenerating && index == _messages.length) {
+              return _buildModelBubble(
+                room: room,
+                text: _streamingText.isEmpty ? '正在想…' : _streamingText,
+                pill: _streamingPill,
+                card: _streamingCard,
+                msgRecord: null,
+              );
+            }
+
+            final msg = _messages[index];
+            if (msg.role == 'divider') {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  children: [
+                    Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.12))),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Text(
+                        msg.content,
+                        style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7280)),
+                      ),
+                    ),
+                    Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.12))),
+                  ],
+                ),
+              );
+            }
+
+            if (msg.role == 'user') {
+              return _buildUserBubble(msg);
+            }
+            return _buildModelBubble(
+              room: room,
+              text: msg.content,
+              pill: msg.toolPill,
+              card: msg.card,
+              msgRecord: msg,
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -2040,11 +2572,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                   onJumpToRoom: _switchRoom,
                                   onOpenAnnotator: (note) => _annotatePhoto(initialNote: note),
                                   onOpenAlbumScanner: _openAlbumScanner,
-                                  onOpenGpxImport: _importGpxFile,
-                                  onOpenHookManager: () => showHookManagerModal(
+                                  onOpenSkillManager: () => showSkillManagerModal(
                                     context: context,
                                     db: widget.db,
-                                    onChanged: () => widget.syncService.scheduleDebouncedPush(),
+                                    onChanged: () {
+                                      unawaited(widget.engine.invalidateSession());
+                                      widget.syncService.scheduleDebouncedPush();
+                                    },
+                                    onToast: _showToast,
+                                  ),
+                                  onOpenRoutineManager: () => showRoutineSchedulerModal(
+                                    context: context,
+                                    db: widget.db,
                                     onToast: _showToast,
                                   ),
                                   onCreateRoom: (name) async {
@@ -2064,55 +2603,196 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                    if (msgRecord != null) ...[
+                    if (msgRecord != null)
                       ListenableBuilder(
                         listenable: TtsService.instance,
                         builder: (context, _) {
                           final tts = TtsService.instance;
                           final isThisPlaying =
                               tts.isSpeaking && tts.speakingMessageId == msgRecord.id;
-                          return SizedBox(
-                            width: 32,
-                            height: 36,
-                            child: IconButton(
-                              padding: EdgeInsets.zero,
-                              tooltip: isThisPlaying ? '停止朗讀' : '朗讀這則訊息',
-                              icon: Icon(
-                                isThisPlaying
-                                    ? Icons.stop_circle_outlined
-                                    : Icons.volume_up_outlined,
-                                size: 17,
-                                color: isThisPlaying
-                                    ? const Color(0xFFFCD34D)
-                                    : const Color(0xFF9CA3AF),
-                              ),
-                              onPressed: () => unawaited(
-                                tts.speak(text, messageId: msgRecord.id),
+                          final isFlagged = _flaggedMessageIds.contains(msgRecord.id);
+                          final Widget pinIcon;
+                          if (isThisPlaying) {
+                            pinIcon = const Icon(
+                              Icons.stop_circle_outlined,
+                              size: 18,
+                              color: Color(0xFFFCD34D),
+                            );
+                          } else if (msgRecord.isStarred) {
+                            pinIcon = const Text('⭐', style: TextStyle(fontSize: 15));
+                          } else if (isFlagged) {
+                            pinIcon = const Icon(
+                              Icons.flag,
+                              size: 16,
+                              color: Color(0xFFF43F5E),
+                            );
+                          } else {
+                            pinIcon = const Opacity(
+                              opacity: 0.65,
+                              child: Text('📌', style: TextStyle(fontSize: 14.5)),
+                            );
+                          }
+                          return Tooltip(
+                            message: '單擊釘選／標星 • 長按展開操作膠囊',
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () async {
+                                if (isThisPlaying) {
+                                  HapticFeedback.lightImpact();
+                                  unawaited(tts.stop());
+                                  if (_expandedPinMessageId == msgRecord.id) {
+                                    setState(() => _expandedPinMessageId = null);
+                                  }
+                                  _showToast('🔇 已停止朗讀');
+                                  return;
+                                }
+                                HapticFeedback.lightImpact();
+                                final nextStar = !msgRecord.isStarred;
+                                await widget.db.setMessageStarred(msgRecord.id, nextStar);
+                                if (nextStar) {
+                                  final short = msgRecord.content.length > 60
+                                      ? '${msgRecord.content.substring(0, 60)}...'
+                                      : msgRecord.content;
+                                  await widget.db.upsertTodoItem(
+                                    roomId: _currentRoomId,
+                                    itemText: short,
+                                  );
+                                }
+                                widget.syncService.scheduleDebouncedPush();
+                                if (_expandedPinMessageId == msgRecord.id) {
+                                  _expandedPinMessageId = null;
+                                }
+                                await _loadRoomContent(_currentRoomId);
+                                _showToast(nextStar ? '⭐📌 已標星並釘入本房待辦' : '已取消標星釘選');
+                              },
+                              onLongPress: () {
+                                HapticFeedback.mediumImpact();
+                                setState(() {
+                                  _expandedPinMessageId =
+                                      _expandedPinMessageId == msgRecord.id ? null : msgRecord.id;
+                                });
+                              },
+                              child: SizedBox(
+                                width: 32,
+                                height: 36,
+                                child: Center(child: pinIcon),
                               ),
                             ),
                           );
                         },
                       ),
-                      SizedBox(
-                        width: 34,
-                        height: 36,
-                        child: IconButton(
-                          padding: EdgeInsets.zero,
-                          tooltip: '操作訊息',
-                          icon: Text(
-                            msgRecord.isStarred ? '⭐' : '📌',
-                            style: const TextStyle(fontSize: 15),
-                          ),
-                          onPressed: () => _showMessageActionSheet(msgRecord),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
+                if (msgRecord != null && _expandedPinMessageId == msgRecord.id)
+                  _buildModelBubbleMiniCapsule(msgRecord, text),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModelBubbleMiniCapsule(ChatMessageRecord msgRecord, String text) {
+    final tts = TtsService.instance;
+    final isThisPlaying = tts.isSpeaking && tts.speakingMessageId == msgRecord.id;
+    final isFlagged = _flaggedMessageIds.contains(msgRecord.id);
+
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF14171F),
+              borderRadius: BorderRadius.circular(99),
+              border: Border.all(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.72),
+                width: 1.1,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black54,
+                  blurRadius: 10,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Wrap(
+              spacing: 2,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _buildMiniCapsuleBtn(
+                  label: isThisPlaying ? '⏹️ 停止' : '🔊 朗讀',
+                  color: isThisPlaying ? const Color(0xFFFCD34D) : const Color(0xFFE5E7EB),
+                  onTap: () {
+                    setState(() => _expandedPinMessageId = null);
+                    if (isThisPlaying) {
+                      unawaited(tts.stop());
+                    } else {
+                      unawaited(tts.speak(text, messageId: msgRecord.id));
+                    }
+                  },
+                ),
+                _buildMiniCapsuleBtn(
+                  label: isFlagged ? '🚩 已插旗' : '🚩 糾錯',
+                  color: isFlagged ? const Color(0xFFFB7185) : const Color(0xFFE5E7EB),
+                  onTap: () async {
+                    setState(() => _expandedPinMessageId = null);
+                    final changed = await showFlagMessageDialog(
+                      context: context,
+                      db: widget.db,
+                      msg: msgRecord,
+                      alreadyFlagged: isFlagged,
+                      onToast: _showToast,
+                    );
+                    if (changed) {
+                      await _loadRoomContent(_currentRoomId);
+                    }
+                  },
+                ),
+                _buildMiniCapsuleBtn(
+                  label: '📋 複製',
+                  color: const Color(0xFFE5E7EB),
+                  onTap: () async {
+                    setState(() => _expandedPinMessageId = null);
+                    await Clipboard.setData(ClipboardData(text: text));
+                    _showToast('📋 已複製訊息文字');
+                  },
+                ),
+                _buildMiniCapsuleBtn(
+                  label: '⋯ 更多',
+                  color: const Color(0xFFFCD34D),
+                  onTap: () {
+                    setState(() => _expandedPinMessageId = null);
+                    _showMessageActionSheet(msgRecord);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniCapsuleBtn({
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(99),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        child: Text(
+          label,
+          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: color),
+        ),
       ),
     );
   }
@@ -2384,6 +3064,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: TextField(
                   controller: _inputController,
+                  focusNode: _inputFocusNode,
                   minLines: 1,
                   maxLines: 4,
                   style: const TextStyle(color: Colors.white, fontSize: 14),

@@ -5,8 +5,9 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 import '../data/database_helper.dart';
 import '../data/models.dart';
-import 'hook_runtime.dart';
 import 'native_actions.dart';
+import 'routine_scheduler.dart';
+import 'web_search_service.dart';
 
 class AtToolOption {
   const AtToolOption({
@@ -102,7 +103,7 @@ class ToolRegistry {
     AtToolOption(
       atLabel: '@報位置',
       toolName: 'location_tool',
-      subtitle: '離線衛星 GPS 標點 ／ Garmin GPX',
+      subtitle: '離線衛星 GPS 座標打卡記錄',
       colorHex: '#34D399',
     ),
     AtToolOption(
@@ -113,9 +114,39 @@ class ToolRegistry {
     ),
     AtToolOption(
       atLabel: '@技能',
-      toolName: 'hook_tool',
-      subtitle: '執行或註冊自訂 JS 公式技能',
+      toolName: 'load_skill',
+      subtitle: '按需載入／管理 SKILL.md 知識包',
       colorHex: '#C084FC',
+    ),
+    AtToolOption(
+      atLabel: '@動作',
+      toolName: 'device_action',
+      subtitle: '手電筒 / 撥號 / 導航 / 倒數 / 設定',
+      colorHex: '#FB923C',
+    ),
+    AtToolOption(
+      atLabel: '@知識',
+      toolName: 'load_skill',
+      subtitle: '按需載入／管理 Skill 知識包',
+      colorHex: '#F472B6',
+    ),
+    AtToolOption(
+      atLabel: '@查網',
+      toolName: 'web_search',
+      subtitle: '免Key聯網搜尋 • 附來源驗證連結',
+      colorHex: '#38BDF8',
+    ),
+    AtToolOption(
+      atLabel: '@找支援',
+      toolName: 'consult_peer',
+      subtitle: 'HTTP直連呼叫雲端參謀 Spark',
+      colorHex: '#A78BFA',
+    ),
+    AtToolOption(
+      atLabel: '@排程',
+      toolName: 'routine_tool',
+      subtitle: '零算力日常/Cron排程 • 預覽未來3次',
+      colorHex: '#F59E0B',
     ),
   ];
 
@@ -171,6 +202,32 @@ class ToolRegistry {
       '用技能': '@技能',
       '查技能': '@技能',
       '註冊技能': '@技能 註冊',
+      '開手電筒': '@開燈',
+      '關手電筒': '@關燈',
+      '手電筒': '@手電筒',
+      '開燈': '@開燈',
+      '關燈': '@關燈',
+      '打電話': '@撥號',
+      '撥號': '@撥號',
+      '導航去': '@導航',
+      '導航': '@導航',
+      '設倒數': '@倒數',
+      '倒數計時': '@倒數',
+      '計時器': '@倒數',
+      '系統設定': '@系統設定',
+      '查知識': '@知識',
+      '開知識': '@知識',
+      '載入技能': '@知識',
+      '查網': '@查網',
+      '聯網查': '@查網',
+      '上網查': '@查網',
+      '搜尋網路': '@查網',
+      '找支援': '@找支援',
+      '問參謀': '@找支援',
+      '呼叫參謀': '@找支援',
+      '叫支援': '@找支援',
+      '日常排程': '@排程',
+      '定時排程': '@排程',
     };
     for (final e in voiceMap.entries) {
       if (s.startsWith(e.key)) {
@@ -205,16 +262,46 @@ class ToolRegistry {
       '@報位置': 9,
       '@報地址': 9,
       '@記座標': 9,
-      '@GPX': 9,
-      '@gpx': 9,
       '@轉LINE': 10,
       '@轉line': 10,
       '@傳LINE': 10,
       '@傳line': 10,
       '@分享': 10,
       '@技能': 11,
-      '@Hook': 11,
-      '@hook': 11,
+      '@Skill': 11,
+      '@skill': 11,
+      '@動作': 12,
+      '@手電筒': 12,
+      '@開燈': 12,
+      '@關燈': 12,
+      '@撥號': 12,
+      '@導航': 12,
+      '@倒數': 12,
+      '@計時': 12,
+      '@系統設定': 12,
+      '@知識': 13,
+      '@查網': 14,
+      '@聯網': 14,
+      '@搜尋': 14,
+      '@上網': 14,
+      '@找支援': 15,
+      '@問參謀': 15,
+      '@參謀': 15,
+      '@同伴': 15,
+      '@排程': 16,
+      '@定時': 16,
+      '@cron': 16,
+    };
+
+    const actionAliasPrefixes = <String, String>{
+      '@手電筒': 'flashlight',
+      '@開燈': 'flashlight on',
+      '@關燈': 'flashlight off',
+      '@撥號': 'dial',
+      '@導航': 'map',
+      '@倒數': 'timer',
+      '@計時': 'timer',
+      '@系統設定': 'settings',
     };
 
     for (final entry in aliases.entries) {
@@ -223,7 +310,11 @@ class ToolRegistry {
         final afterTag = trimmed.substring(tag.length);
         if (afterTag.isEmpty || RegExp(r'^[\s:：,，]').hasMatch(afterTag)) {
           final clean = afterTag.replaceFirst(RegExp(r'^[\s:：,，]+'), '').trim();
-          return (option: atOptions[entry.value], cleanText: clean);
+          final prefix = actionAliasPrefixes[tag];
+          final effectiveClean = prefix == null
+              ? clean
+              : (clean.isEmpty ? (prefix == 'flashlight' ? 'flashlight on' : prefix) : '$prefix $clean');
+          return (option: atOptions[entry.value], cleanText: effectiveClean);
         }
       }
     }
@@ -347,11 +438,11 @@ class ToolRegistry {
       case 'location_tool':
         return const Tool(
           name: 'location_tool',
-          description: '離線抓取手機 GPS 衛星經緯度存成標點，或準備匯入 Garmin .gpx 航點。',
+          description: '離線抓取手機 GPS 衛星經緯度存成標點與 Google Maps 連結。',
           parameters: {
             'type': 'object',
             'properties': {
-              'label': {'type': 'string', 'description': '標點名稱或備註，若為 gpx 則開啟 GPX 匯入'},
+              'label': {'type': 'string', 'description': '標點名稱或備註'},
             },
           },
         );
@@ -366,19 +457,82 @@ class ToolRegistry {
             },
           },
         );
-      case 'hook_tool':
+      case 'device_action':
         return const Tool(
-          name: 'hook_tool',
-          description: '查詢、註冊（學會新公式）或執行儲存在 SQLite 的 JS/公式擴充技能。',
+          name: 'device_action',
+          description: '呼叫 Android 原生硬體與系統 Intent：手電筒、填號撥號、震動、系統時鐘倒數/鬧鐘、Google Maps 導航、系統設定頁。',
           parameters: {
             'type': 'object',
             'properties': {
-              'action': {'type': 'string', 'enum': ['list', 'call', 'register', 'delete']},
-              'name': {'type': 'string', 'description': '技能名稱'},
-              'description': {'type': 'string', 'description': '技能說明'},
-              'params': {'type': 'string', 'description': '逗號分隔的參數名稱，例如 w,len,qty'},
-              'body': {'type': 'string', 'description': 'JS 運算主體，例如 return w*len/1000*qty*1.09;'},
-              'args_text': {'type': 'string', 'description': '呼叫技能時的參數值'},
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'setFlashlight',
+                  'dialPhone',
+                  'vibrate',
+                  'setTimerOrAlarm',
+                  'openMap',
+                  'openSettings',
+                ],
+                'description': '原生動作名稱',
+              },
+              'value': {
+                'type': 'string',
+                'description': '參數內容（手電筒: on/off；撥號: 電話號碼；倒數/鬧鐘: 例如 15分鐘 或 07:30；地圖: 地址/座標；設定: wifi/bluetooth/hotspot/location）',
+              },
+              'message': {
+                'type': 'string',
+                'description': '選填：倒數計時或鬧鐘提示標題',
+              },
+            },
+            'required': ['action'],
+          },
+        );
+      case 'load_skill':
+        return const Tool(
+          name: 'load_skill',
+          description: '按需從本地 SQLite 知識庫翻查指定 Skill 的詳細流程與規則（保護 Context 不預載全文）。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'name': {'type': 'string', 'description': 'Skill 名稱或關鍵字，填 list 可查看所有可用 Skill'},
+            },
+            'required': ['name'],
+          },
+        );
+      case 'web_search':
+        return const Tool(
+          name: 'web_search',
+          description: '免 API Key 聯網查詢即時規格、材料價格、廠商營業資訊或現場查證。失敗時自動 Fallback 呼叫雲端同伴。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '要聯網搜尋的關鍵字或問題'},
+            },
+            'required': ['query'],
+          },
+        );
+      case 'consult_peer':
+        return const Tool(
+          name: 'consult_peer',
+          description: '當本地 4B 模型無法處理複雜計算、超長上下文或需雲端參謀 Spark 支援時，透過 HTTP 直連呼叫雲端／本地同伴。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '請同伴協助解決的具體問題'},
+              'context': {'type': 'string', 'description': '選填：當前案場背景或數據'},
+            },
+            'required': ['query'],
+          },
+        );
+      case 'routine_tool':
+        return const Tool(
+          name: 'routine_tool',
+          description: '管理不喚醒 4B 模型的零算力本地日常排程（每日、每週、Cron、未來 3 次預覽）。',
+          parameters: {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '例如：每天 07:30 追金代交期 或 list 查看現有排程'},
             },
           },
         );
@@ -416,8 +570,16 @@ class ToolRegistry {
         return _runLocationTool(args, roomId);
       case 'share_line':
         return _runShareLineTool(args, roomId);
-      case 'hook_tool':
-        return _runHookTool(args);
+      case 'device_action':
+        return _runDeviceAction(args);
+      case 'load_skill':
+        return _runLoadSkill(args);
+      case 'web_search':
+        return _runWebSearch(args, roomId);
+      case 'consult_peer':
+        return _runConsultPeer(args, roomId);
+      case 'routine_tool':
+        return _runRoutineTool(args);
       default:
         return ToolExecutionOutcome(
           toolResponse: {'error': '未知工具: $toolName'},
@@ -477,8 +639,16 @@ class ToolRegistry {
         return _runLocationTool({'label': clean}, roomId);
       case 'share_line':
         return _runShareLineTool({'extra_note': clean}, roomId);
-      case 'hook_tool':
-        return _runHookTool({'query': clean});
+      case 'device_action':
+        return _runDeviceAction({'query': clean});
+      case 'load_skill':
+        return _runLoadSkill({'name': clean});
+      case 'web_search':
+        return _runWebSearch({'query': clean}, roomId);
+      case 'consult_peer':
+        return _runConsultPeer({'query': clean}, roomId);
+      case 'routine_tool':
+        return _runRoutineTool({'query': clean});
       default:
         return const ToolExecutionOutcome(toolResponse: {'status': 'noop'});
     }
@@ -1080,32 +1250,12 @@ class ToolRegistry {
     String roomId,
   ) async {
     final label = (args['label'] ?? '').toString().trim();
-    final lower = label.toLowerCase();
-    if (lower.contains('gpx') || label.contains('匯入') || label.contains('航點')) {
-      const card = ActionCardData(
-        type: 'gpx_import',
-        badge: '🧭 Garmin / GPX 航點匯入',
-        title: '從 .gpx 匯入航點進本房清單',
-        rows: [
-          '零算力解析 <wpt> / <rtept> / <trkpt> 經緯度與名稱，離線直接寫入待辦與地圖連結。',
-        ],
-        buttonLabel: '📂 選擇 .gpx 檔案匯入本房',
-        payload: {},
-      );
-      return const ToolExecutionOutcome(
-        toolResponse: {'mode': 'gpx_import'},
-        toolPill: '🧭 gpx_import：等待選擇 .gpx 檔',
-        card: card,
-        directReply: '點下面按鈕挑選從 Garmin Explore 匯出的 .gpx 檔，立刻幫你整批轉進這間房：',
-      );
-    }
-
     final loc = await NativeActions.getCurrentLocation();
     if (!loc.ok || loc.lat == null || loc.lng == null) {
       return ToolExecutionOutcome(
         toolResponse: {'ok': false, 'reason': loc.reason ?? '定位失敗'},
         toolPill: '⚠️ location：${loc.reason ?? '定位失敗'}',
-        directReply: '目前抓不到 GPS 座標（${loc.reason ?? '請檢查定位權限與開關'}）；如果是要讀 Garmin 檔案可以輸入「@報位置 gpx」。',
+        directReply: '目前抓不到 GPS 座標（${loc.reason ?? '請檢查定位權限與開關'}）。',
       );
     }
 
@@ -1230,167 +1380,551 @@ class ToolRegistry {
     );
   }
 
-  Future<ToolExecutionOutcome> _runHookTool(Map<String, dynamic> args) async {
-    final action = (args['action'] ?? '').toString().trim().toLowerCase();
+  Future<ToolExecutionOutcome> _runDeviceAction(Map<String, dynamic> args) async {
+    var action = (args['action'] ?? '').toString().trim();
+    var value = (args['value'] ?? '').toString().trim();
+    var message = (args['message'] ?? '').toString().trim();
     final rawQuery = (args['query'] ?? '').toString().trim();
 
-    // 1. Register via structured args (from LLM) or "@技能 註冊 ..." text
-    if (action == 'register' ||
-        rawQuery.startsWith('註冊') ||
-        rawQuery.startsWith('新增')) {
-      HookRegisterSpec? spec;
-      if (action == 'register') {
-        final name = (args['name'] ?? '').toString().trim();
-        final desc = (args['description'] ?? '自訂公式技能').toString().trim();
-        final rawParams = (args['params'] ?? '').toString();
-        final rawBody = (args['body'] ?? '').toString().trim();
-        if (name.isNotEmpty && rawBody.isNotEmpty) {
-          final params = rawParams
-              .split(RegExp(r'[,，\s]+'))
-              .map((e) => e.trim())
-              .where((e) => e.isNotEmpty)
-              .toList();
-          final body = (!rawBody.contains('return ') && !rawBody.contains(';'))
-              ? 'return ($rawBody);'
-              : rawBody;
-          spec = HookRegisterSpec(
-            name: name,
-            description: desc,
-            params: params,
-            body: body,
+    if (action.isEmpty && rawQuery.isNotEmpty) {
+      final lower = rawQuery.toLowerCase();
+      if (lower.startsWith('flashlight') ||
+          rawQuery.contains('手電筒') ||
+          rawQuery.contains('開燈') ||
+          rawQuery.contains('關燈')) {
+        action = 'setFlashlight';
+        value = (lower.contains('off') || rawQuery.contains('關')) ? 'off' : 'on';
+      } else if (lower.startsWith('dial') ||
+          rawQuery.contains('撥號') ||
+          rawQuery.contains('打給') ||
+          RegExp(r'^0\d{7,9}$').hasMatch(rawQuery.replaceAll('-', ''))) {
+        action = 'dialPhone';
+        value = rawQuery
+            .replaceFirst(RegExp(r'^(dial|撥號|打給|打電話給?)\s*'), '')
+            .trim();
+      } else if (lower.startsWith('map') ||
+          rawQuery.contains('導航') ||
+          rawQuery.contains('地圖')) {
+        action = 'openMap';
+        value = rawQuery
+            .replaceFirst(RegExp(r'^(map|導航去?|地圖找?)\s*'), '')
+            .trim();
+      } else if (lower.startsWith('timer') ||
+          rawQuery.contains('倒數') ||
+          rawQuery.contains('計時') ||
+          rawQuery.contains('鬧鐘')) {
+        action = 'setTimerOrAlarm';
+        value = rawQuery
+            .replaceFirst(RegExp(r'^(timer|倒數|計時器?|設定?鬧鐘)\s*'), '')
+            .trim();
+      } else if (lower.startsWith('settings') ||
+          rawQuery.contains('設定') ||
+          lower.contains('wifi') ||
+          rawQuery.contains('藍牙') ||
+          rawQuery.contains('熱點')) {
+        action = 'openSettings';
+        value = rawQuery.replaceFirst(RegExp(r'^(settings|系統設定|設定)\s*'), '').trim();
+      } else if (lower.startsWith('vibrate') || rawQuery.contains('震動')) {
+        action = 'vibrate';
+        value = '250';
+      }
+    }
+
+    switch (action) {
+      case 'setFlashlight':
+        final turnOn = !value.toLowerCase().contains('off') &&
+            value != '0' &&
+            !value.contains('關');
+        final res = await NativeActions.setFlashlight(turnOn);
+        final ok = res['ok'] == true;
+        return ToolExecutionOutcome(
+          toolResponse: {'action': 'setFlashlight', 'on': turnOn, ...res},
+          toolPill: ok
+              ? (turnOn ? '🔦 手電筒已開啟' : '🔦 手電筒已關閉')
+              : '⚠️ 手電筒：${res['reason'] ?? '無法切換'}',
+          card: ActionCardData(
+            type: 'device_action',
+            badge: '🔦 原生手電筒控制',
+            title: turnOn ? '切換手電筒（目前：開）' : '切換手電筒（目前：關）',
+            rows: [
+              ok ? '硬體閃光燈已切換為${turnOn ? '開啟' : '關閉'}。' : '原因：${res['reason'] ?? '裝置不支援'}',
+            ],
+            buttonLabel: turnOn ? '🔦 關閉手電筒' : '🔦 開啟手電筒',
+            payload: {
+              'action': 'setFlashlight',
+              'params': {'on': !turnOn},
+            },
+          ),
+          directReply: ok
+              ? (turnOn ? '手電筒幫你打開了，照清楚再量！' : '手電筒關掉了。')
+              : '手電筒這次沒切過去（${res['reason'] ?? '請於實機操作'}）。',
+        );
+
+      case 'dialPhone':
+        final phone = value.replaceAll(RegExp(r'[^\d+*#\-]'), '').trim();
+        if (phone.isEmpty) {
+          return const ToolExecutionOutcome(
+            toolResponse: {'ok': false, 'reason': '缺少電話號碼'},
+            toolPill: '📞 dialPhone：未提供號碼',
+            directReply: '要打給誰？告訴我號碼，我幫你帶進撥號畫面（不會偷打出去）。',
           );
         }
-      } else {
-        spec = HookRuntime.parseRegisterCommand(rawQuery);
-      }
-
-      if (spec == null) {
-        return const ToolExecutionOutcome(
-          toolResponse: {'ok': false, 'error': '格式不符'},
-          toolPill: '⚠️ hook：註冊格式說明',
-          directReply: '註冊技能格式：\n`@技能 註冊 技能名 | 說明 | 參數1,參數2 | 公式`\n例：`@技能 註冊 折彎餘量 | 不鏽鋼扣板 | w,t | return w - t * 1.6;`',
+        final res = await NativeActions.dialPhone(phone);
+        final ok = res['ok'] == true;
+        return ToolExecutionOutcome(
+          toolResponse: {'action': 'dialPhone', 'phone': phone, ...res},
+          toolPill: ok ? '📞 已帶入撥號：$phone' : '⚠️ dialPhone：${res['reason'] ?? '失敗'}',
+          card: ActionCardData(
+            type: 'device_action',
+            badge: '📞 系統撥號盤預填（安全防誤撥）',
+            title: phone,
+            rows: const ['已預填號碼並跳轉系統撥號鍵盤，按下通話鍵即可撥出。'],
+            buttonLabel: '📞 重新開啟撥號畫面',
+            payload: {
+              'action': 'dialPhone',
+              'params': {'phone': phone},
+            },
+          ),
+          directReply: ok
+              ? '號碼「$phone」已經幫你填好打開撥號盤了，看清楚按綠色通話鍵就行。'
+              : '無法開啟撥號畫面（${res['reason'] ?? ''}），號碼先留這張卡片給你：',
         );
-      }
 
-      await _db.upsertHook(
-        name: spec.name,
-        description: spec.description,
-        params: spec.params,
-        body: spec.body,
-      );
-
-      final card = ActionCardData(
-        type: 'hook',
-        badge: '🧩 已學會新技能 (SQLite + 可同步)',
-        title: spec.name,
-        rows: [
-          '說明：${spec.description}',
-          '參數：${spec.params.isEmpty ? '（無）' : spec.params.join(', ')}',
-          '公式：${spec.body}',
-        ],
-        buttonLabel: '🧩 開啟技能管理面板',
-        payload: {'copyText': '${spec.name}: ${spec.body}'},
-      );
-
-      return ToolExecutionOutcome(
-        toolResponse: {'ok': true, 'registered': spec.name},
-        toolPill: '🧩 hook_register：已記住「${spec.name}」',
-        card: card,
-        directReply: '學會了！「${spec.name}」已經存進技能庫，下次打「@技能 ${spec.name} ${spec.params.join(' ')}」就能秒算。',
-      );
-    }
-
-    // 2. Delete skill
-    if (action == 'delete' || rawQuery.startsWith('刪除 ')) {
-      final target = action == 'delete'
-          ? (args['name'] ?? '').toString().trim()
-          : rawQuery.substring(3).trim();
-      if (target.isEmpty) {
-        return const ToolExecutionOutcome(
-          toolResponse: {'ok': false},
-          directReply: '要刪哪一個技能？打「@技能 刪除 名稱」或開技能面板點垃圾桶。',
+      case 'vibrate':
+        final ms = int.tryParse(value.replaceAll(RegExp(r'\D'), '')) ?? 250;
+        final res = await NativeActions.vibrate(durationMs: ms);
+        return ToolExecutionOutcome(
+          toolResponse: {'action': 'vibrate', 'durationMs': ms, ...res},
+          toolPill: res['ok'] == true ? '📳 震動觸發 (${ms}ms)' : '⚠️ vibrate：${res['reason'] ?? ''}',
+          directReply: res['ok'] == true ? '震動過了 📳' : '目前無法觸發震動（${res['reason'] ?? ''}）。',
         );
-      }
-      await _db.deleteHook(target);
-      return ToolExecutionOutcome(
-        toolResponse: {'ok': true, 'deleted': target},
-        toolPill: '🗑️ hook_delete：已刪除 $target',
-        directReply: '好，技能「$target」已經刪掉了。',
-      );
-    }
 
-    // 3. List all hooks
-    if (action == 'list' ||
-        rawQuery.isEmpty ||
-        rawQuery == '列表' ||
-        rawQuery.toLowerCase() == 'list') {
-      final hooks = await _db.getHooks();
+      case 'setTimerOrAlarm':
+        final combined = '$value $message'.trim();
+        final secMatch = RegExp(r'(\d+)\s*秒').firstMatch(combined);
+        final minMatch = RegExp(r'(\d+)\s*分(?:鐘)?').firstMatch(combined);
+        final clockMatch = RegExp(r'(\d{1,2})\s*[:：點時]\s*(\d{1,2})?').firstMatch(combined);
+        final cleanTitle = message.isNotEmpty
+            ? message
+            : _extractCleanEventTitle(value, 'KODARI 現場計時');
+
+        if (clockMatch != null && minMatch == null && secMatch == null) {
+          final h = (int.tryParse(clockMatch.group(1)!) ?? 8).clamp(0, 23);
+          final m = (int.tryParse(clockMatch.group(2) ?? '0') ?? 0).clamp(0, 59);
+          final res = await NativeActions.setTimerOrAlarm(
+            mode: 'alarm',
+            hour: h,
+            minute: m,
+            message: cleanTitle,
+          );
+          final hh = h.toString().padLeft(2, '0');
+          final mm = m.toString().padLeft(2, '0');
+          return ToolExecutionOutcome(
+            toolResponse: {'action': 'setTimerOrAlarm', 'mode': 'alarm', 'hour': h, 'minute': m, ...res},
+            toolPill: '⏰ 系統時鐘鬧鐘：$hh:$mm',
+            card: ActionCardData(
+              type: 'device_action',
+              badge: '⏰ 喚起系統原生「時鐘」鬧鐘',
+              title: '$hh:$mm • $cleanTitle',
+              rows: const ['直接由手機原生時鐘負責響鈴，就算 App 被系統清掉也照樣準時叫你。'],
+              buttonLabel: '⏰ 再開系統時鐘確認',
+              payload: {
+                'action': 'setTimerOrAlarm',
+                'params': {'mode': 'alarm', 'hour': h, 'minute': m, 'message': cleanTitle},
+              },
+            ),
+            directReply: '已幫你喚起系統「時鐘」設定 $hh:$mm 的鬧鐘（$cleanTitle）。',
+          );
+        }
+
+        final minutes = int.tryParse(minMatch?.group(1) ?? '');
+        final seconds = int.tryParse(secMatch?.group(1) ?? '');
+        final bareNum = (minutes == null && seconds == null)
+            ? int.tryParse(value.replaceAll(RegExp(r'\D'), ''))
+            : null;
+        final effMin = minutes ?? (seconds == null ? (bareNum ?? 5) : null);
+        final res = await NativeActions.setTimerOrAlarm(
+          mode: 'timer',
+          minutes: effMin,
+          seconds: seconds,
+          message: cleanTitle,
+        );
+        final durLabel = seconds != null
+            ? '$seconds秒'
+            : '${effMin ?? 5}分鐘';
+        return ToolExecutionOutcome(
+          toolResponse: {'action': 'setTimerOrAlarm', 'mode': 'timer', 'label': durLabel, ...res},
+          toolPill: '⏱️ 系統時鐘倒數：$durLabel',
+          card: ActionCardData(
+            type: 'device_action',
+            badge: '⏱️ 原生系統倒數計時器',
+            title: '倒數 $durLabel • $cleanTitle',
+            rows: const ['已交給 Android 原生時鐘倒數計時。'],
+            buttonLabel: '⏱️ 重新喚起倒數計時',
+            payload: {
+              'action': 'setTimerOrAlarm',
+              'params': {
+                'mode': 'timer',
+                'minutes': ?effMin,
+                'seconds': ?seconds,
+                'message': cleanTitle,
+              },
+            },
+          ),
+          directReply: '好，幫你開好系統時鐘倒數 $durLabel（$cleanTitle）。',
+        );
+
+      case 'openMap':
+        final query = value.trim();
+        if (query.isEmpty) {
+          return const ToolExecutionOutcome(
+            toolResponse: {'ok': false, 'reason': '缺少導航目的地'},
+            toolPill: '🗺️ openMap：缺少地點',
+            directReply: '要去哪裡？說出路名、案場地址或座標，我馬上開 Google Maps 幫你導航。',
+          );
+        }
+        final res = await NativeActions.openMapQuery(query);
+        final ok = res['ok'] == true;
+        return ToolExecutionOutcome(
+          toolResponse: {'action': 'openMap', 'query': query, ...res},
+          toolPill: ok ? '🗺️ 已導航：$query' : '⚠️ openMap：${res['reason'] ?? ''}',
+          card: ActionCardData(
+            type: 'device_action',
+            badge: '🗺️ 一鍵 Google Maps 導航',
+            title: query,
+            rows: const ['已喚起系統地圖搜尋位置並準備導航路線。'],
+            buttonLabel: '🗺️ 再開一次 Google Maps',
+            payload: {
+              'action': 'openMap',
+              'params': {'query': query},
+            },
+          ),
+          directReply: ok
+              ? 'Google Maps 幫你拉起來導航「$query」了！'
+              : '地圖沒有順利彈出（${res['reason'] ?? ''}），點卡片再試一次：',
+        );
+
+      case 'openSettings':
+        final panel = value.isEmpty ? 'main' : value;
+        final res = await NativeActions.openSystemSettings(panel);
+        final label = panel.contains('wifi')
+            ? 'Wi-Fi 設定'
+            : panel.contains('blue') || panel.contains('藍牙')
+                ? '藍牙配對'
+                : panel.contains('hotspot') || panel.contains('熱點')
+                    ? '熱點／網路共用'
+                    : panel.contains('gps') || panel.contains('定位')
+                        ? '定位設定'
+                        : '系統設定';
+        return ToolExecutionOutcome(
+          toolResponse: {'action': 'openSettings', 'panel': panel, ...res},
+          toolPill: '⚙️ 跳轉 $label',
+          card: ActionCardData(
+            type: 'device_action',
+            badge: '⚙️ 系統設定快速通道',
+            title: label,
+            rows: const ['免自己滑選單，一點即達該系統面板。'],
+            buttonLabel: '⚙️ 開啟 $label',
+            payload: {
+              'action': 'openSettings',
+              'params': {'panel': panel},
+            },
+          ),
+          directReply: '幫你直接跳到「$label」頁面了。',
+        );
+
+      default:
+        return ToolExecutionOutcome(
+          toolResponse: {'ok': false, 'reason': '請指定動作或直接用 @手電筒 / @撥號 / @導航 / @倒數 / @系統設定'},
+          toolPill: '📱 原生動作就緒',
+          card: const ActionCardData(
+            type: 'device_action',
+            badge: '🛠️ 可用原生手腳一覽',
+            title: '直接打指令或對我說話就行',
+            rows: [
+              '• @手電筒 開 / 關（@開燈 / @關燈）',
+              '• @撥號 0912345678（安全預填撥號盤）',
+              '• @導航 古坑新生路（喚起 Google Maps）',
+              '• @倒數 15分鐘 看烤漆（原生系統時鐘）',
+              '• @系統設定 wifi / 藍牙 / 熱點',
+            ],
+            buttonLabel: '',
+            payload: {},
+          ),
+          directReply: '隨時可以叫我開手電筒、填號撥電話、開 Google Maps 導航、設倒數計時或跳系統設定！',
+        );
+    }
+  }
+
+  Future<ToolExecutionOutcome> _runLoadSkill(Map<String, dynamic> args) async {
+    final query = (args['name'] ?? args['query'] ?? '').toString().trim();
+    if (query.isEmpty || query == 'list' || query == '列表') {
+      final skills = await _db.getSkills();
       final card = ActionCardData(
-        type: 'hook',
-        badge: '🧩 已註冊技能庫（共 ${hooks.length} 個）',
-        title: hooks.isEmpty ? '目前尚無自訂技能' : '直接打「@技能 名稱 參數...」即可執行',
+        type: 'skill',
+        badge: '📜 按需 Skill 知識包庫（共 ${skills.length} 份）',
+        title: skills.isEmpty ? '目前尚無 Skill 知識包' : '僅在命中關鍵字或點名時動態注入，不佔 KV-Cache',
         rows: [
-          for (final h in hooks.take(6))
-            '• ${h.name} (${h.params.join(' ')}) — ${h.description}',
+          for (final s in skills.take(6))
+            '${s.enabled ? '🟢' : '⚪'} ${s.name}（觸發：${s.triggerKeywords.take(3).join('/')}）— ${s.description}',
         ],
-        buttonLabel: '🧩 開啟技能 Hook 管理面板',
-        payload: {'copyText': hooks.map((h) => '${h.name}: ${h.description}').join('\n')},
+        buttonLabel: '📜 開啟 Skill 知識包管理',
+        payload: {
+          'copyText': skills.map((s) => '${s.name}: ${s.description}').join('\n'),
+        },
       );
       return ToolExecutionOutcome(
-        toolResponse: {'count': hooks.length, 'hooks': hooks.map((h) => h.name).toList()},
-        toolPill: '🧩 hook_list：共 ${hooks.length} 個技能',
+        toolResponse: {
+          'count': skills.length,
+          'skills': skills.map((s) => {'id': s.id, 'name': s.name, 'enabled': s.enabled}).toList(),
+        },
+        toolPill: '📜 load_skill：共 ${skills.length} 份知識包',
         card: card,
-        directReply: hooks.isEmpty
-            ? '技能庫還是空的，點下面按鈕或用「@技能 註冊 ...」幫我裝新技能！'
-            : '目前這台手機有 ${hooks.length} 個可用技能，點卡片可以測試或新增：',
+        directReply: '目前手機裡有 ${skills.length} 份熱插拔 Skill，平常只放超輕量索引不佔記憶體，點下面可以新增或匯入 .md 檔：',
       );
     }
 
-    // 4. Call a specific hook
-    var hookName = (args['name'] ?? '').toString().trim();
-    var argsText = (args['args_text'] ?? '').toString().trim();
-    if (hookName.isEmpty && rawQuery.isNotEmpty) {
-      final parts = rawQuery.split(RegExp(r'\s+'));
-      hookName = parts.first;
-      argsText = parts.skip(1).join(' ');
-    }
-
-    final hook = await _db.getHook(hookName);
-    if (hook == null) {
+    final skill = await _db.getSkillByNameOrId(query);
+    if (skill == null) {
       return ToolExecutionOutcome(
-        toolResponse: {'ok': false, 'error': '找不到技能 $hookName'},
-        toolPill: '⚠️ hook_call：查無「$hookName」',
-        directReply: '技能庫裡找不到「$hookName」，打 `@技能` 看目前有哪些技能。',
+        toolResponse: {'found': false, 'query': query},
+        toolPill: '⚠️ load_skill：查無「$query」',
+        card: const ActionCardData(
+          type: 'skill',
+          badge: '📜 查無指定 Skill',
+          title: '要自行新增或匯入 .md 知識包嗎？',
+          rows: ['打 `@知識` 查看清單，或直接點下面按鈕在手機貼上 Markdown。'],
+          buttonLabel: '📜 開啟 Skill 知識包管理',
+          payload: {},
+        ),
+        directReply: '知識庫裡沒找到「$query」，點卡片進 Skill 管理器貼一段 Markdown 我馬上就學會！',
       );
     }
 
-    final boundArgs = HookRuntime.bindArguments(hook, argsText);
-    final res = await HookRuntime.execute(hook: hook, args: boundArgs);
-    if (!res.ok) {
-      return ToolExecutionOutcome(
-        toolResponse: {'ok': false, 'error': res.error},
-        toolPill: '⚠️ ${hook.name}：執行缺參數／錯誤',
-        directReply: '跑「${hook.name}」差一點：${res.error}',
-      );
-    }
-
-    final card = ActionCardData(
-      type: 'profile',
-      badge: '🧩 技能運算結果 (${res.engineUsed})',
-      title: '${hook.name} ➔ ${res.output}',
-      rows: [
-        '輸入參數：${boundArgs.entries.map((e) => '${e.key}=${e.value}').join(' / ')}',
-        if (hook.description.isNotEmpty) '用途：${hook.description}',
-      ],
-      buttonLabel: '📋 複製計算結果',
-      payload: {'copyText': '${hook.name}: ${res.output}'},
-    );
+    final previewLines = skill.contentMd
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .take(5)
+        .toList();
 
     return ToolExecutionOutcome(
-      toolResponse: {'ok': true, 'name': hook.name, 'output': res.output},
-      toolPill: '🧩 ${hook.name}：${res.output}',
+      toolResponse: {
+        'found': true,
+        'id': skill.id,
+        'name': skill.name,
+        'description': skill.description,
+        'content_md': skill.contentMd,
+      },
+      toolPill: '📜 已動態載入 Skill：${skill.name}',
+      card: ActionCardData(
+        type: 'skill',
+        badge: '📜 Skill 知識包詳情',
+        title: skill.name,
+        rows: [
+          '關鍵字：${skill.triggerKeywordsCsv}',
+          ...previewLines,
+        ],
+        buttonLabel: '📜 在管理器編輯／開關',
+        payload: {'skillId': skill.id, 'copyText': skill.contentMd},
+      ),
+      directReply: '已調出「${skill.name}」的現場規範，內容細節在上面卡片：',
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runWebSearch(
+    Map<String, dynamic> args,
+    String roomId,
+  ) async {
+    final query = (args['query'] ?? args['q'] ?? '').toString().trim();
+    if (query.isEmpty) {
+      return const ToolExecutionOutcome(
+        toolResponse: {'ok': false, 'error': '缺少搜尋關鍵字'},
+        toolPill: '🌐 web_search：未輸入關鍵字',
+        directReply: '要查什麼？直接跟我說關鍵字，例如「@查網 古坑五金行」或「上網查 304白鐵比重」。',
+      );
+    }
+
+    final roomTodos = await _db.getRoomTodos(roomId);
+    final ctxSummary = roomTodos.take(6).map((t) => t.text).join('；');
+    final outcome = await WebSearchService.searchWithFallback(
+      query: query,
+      contextText: ctxSummary,
+      roomId: roomId,
+    );
+
+    return _outcomeFromWebOrPeer(
+      outcome: outcome,
+      isDirectPeer: false,
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runConsultPeer(
+    Map<String, dynamic> args,
+    String roomId,
+  ) async {
+    final query = (args['query'] ?? args['prompt'] ?? '').toString().trim();
+    final extraContext = (args['context'] ?? '').toString().trim();
+    if (query.isEmpty) {
+      return const ToolExecutionOutcome(
+        toolResponse: {'ok': false, 'error': '缺少提問內容'},
+        toolPill: '🛸 consult_peer：請輸入要問同伴的問題',
+        directReply: '要呼叫 Spark 參謀或後台支援嗎？把問題貼給我，我直接 HTTP 直連打過去幫你問。',
+      );
+    }
+
+    final room = await _db.getRoom(roomId);
+    final roomTodos = await _db.getRoomTodos(roomId);
+    final todoPreview = roomTodos.take(8).map((t) => '${t.done ? "[x]" : "[ ]"} ${t.text}').join('\n');
+    final combinedContext = [
+      if (room != null) '房間：${room.title}',
+      if (room?.rollingSummary.isNotEmpty == true) '摘要：${room!.rollingSummary}',
+      if (todoPreview.isNotEmpty) '待辦：\n$todoPreview',
+      if (extraContext.isNotEmpty) extraContext,
+    ].join('\n');
+
+    final outcome = await WebSearchService.consultPeer(
+      query: query,
+      contextText: combinedContext,
+      roomId: roomId,
+    );
+
+    return _outcomeFromWebOrPeer(
+      outcome: outcome,
+      isDirectPeer: true,
+    );
+  }
+
+  ToolExecutionOutcome _outcomeFromWebOrPeer({
+    required WebSearchOutcome outcome,
+    required bool isDirectPeer,
+  }) {
+    final sourcesList = outcome.sources.map((s) => s.toMap()).toList();
+    final primaryUrl = outcome.sources.isNotEmpty ? outcome.sources.first.url : '';
+    final usedPeer = outcome.usedPeerFallback || isDirectPeer;
+    final peerLabel = outcome.peerName ?? 'Spark 參謀';
+
+    final rawLines = outcome.summaryText
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .take(8)
+        .toList();
+
+    final badge = usedPeer
+        ? (isDirectPeer ? '🛸 直連同伴支援（$peerLabel）' : '🌐 聯網自動轉接同伴（$peerLabel）')
+        : '🔍 已聯網搜尋：${outcome.query}';
+
+    final pill = usedPeer
+        ? (outcome.ok ? '🛸 已獲 $peerLabel 回援' : '⚠️ 同伴連線未完成')
+        : (outcome.ok ? '🔍 已聯網搜尋：${outcome.query}' : '⚠️ 聯網搜尋異常');
+
+    final card = ActionCardData(
+      type: usedPeer ? 'consult_peer' : 'web_search',
+      badge: badge,
+      title: outcome.query,
+      rows: rawLines.isEmpty ? [outcome.summaryText] : rawLines,
+      buttonLabel: primaryUrl.isNotEmpty ? '🌐 開啟第一筆驗證網頁' : '📋 一鍵複製整理結果',
+      payload: {
+        'query': outcome.query,
+        'primaryUrl': primaryUrl,
+        'copyText': '${outcome.query}\n\n${outcome.summaryText}',
+        'sources': sourcesList,
+      },
+    );
+
+    final replyText = outcome.ok
+        ? (usedPeer
+            ? '$peerLabel 支援回覆回來了：\n\n${outcome.summaryText}'
+            : '剛幫你聯網查了「${outcome.query}」，下面卡片附上可點擊的來源連結給你驗證：')
+        : outcome.summaryText;
+
+    return ToolExecutionOutcome(
+      toolResponse: {
+        'ok': outcome.ok,
+        'query': outcome.query,
+        'used_peer_fallback': outcome.usedPeerFallback,
+        'peer': outcome.peerName,
+        'summary': outcome.summaryText,
+        'sources': sourcesList,
+      },
+      toolPill: pill,
       card: card,
-      directReply: '${hook.name} 算出來了：${res.output}',
+      directReply: replyText,
+    );
+  }
+
+  Future<ToolExecutionOutcome> _runRoutineTool(Map<String, dynamic> args) async {
+    final query = (args['query'] ?? '').toString().trim();
+
+    // Quick creation: e.g. "每天 07:30 追金代交期" or "08:15 檢查烤漆"
+    final timeMatch = RegExp(r'(\d{1,2})\s*[:：點時]\s*(\d{1,2})?').firstMatch(query);
+    if (query.isNotEmpty &&
+        query.toLowerCase() != 'list' &&
+        query != '列表' &&
+        timeMatch != null) {
+      final hh = (int.tryParse(timeMatch.group(1)!) ?? 8).clamp(0, 23).toString().padLeft(2, '0');
+      final mm = (int.tryParse(timeMatch.group(2) ?? '0') ?? 0).clamp(0, 59).toString().padLeft(2, '0');
+      final mode = query.contains('單次') ? 'once' : 'daily';
+      var title = query
+          .replaceFirst(timeMatch.group(0)!, '')
+          .replaceAll(RegExp(r'^(?:每天|每日|單次|今天|明天)\s*'), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (title.isEmpty) title = 'KODARI 零算力提醒';
+
+      final saved = await _db.upsertRoutine(
+        title: title,
+        body: '零算力排程：$title',
+        mode: mode,
+        timeSpec: '$hh:$mm',
+        enabled: true,
+      );
+      await RoutineScheduler.syncEnabledRoutinesToSystem(_db);
+      final next3 = RoutineScheduler.formatNextOccurrencesPreview(saved);
+
+      return ToolExecutionOutcome(
+        toolResponse: {'created': true, 'id': saved.id, 'next3': next3},
+        toolPill: '⏰ 已設零算力排程：${saved.title}',
+        card: ActionCardData(
+          type: 'routine',
+          badge: '⏰ 零算力日常排程已啟用（0 Token）',
+          title: '${saved.modeLabel} $hh:$mm • ${saved.title}',
+          rows: [
+            '未來 3 次執行預覽：',
+            for (final ts in next3) '• $ts',
+          ],
+          buttonLabel: '⏰ 開啟零算力排程管理器',
+          payload: {'routineId': saved.id},
+        ),
+        directReply: '設好了！${saved.modeLabel} $hh:$mm「${saved.title}」（完全不叫醒 4B，純系統定時叫你）。',
+      );
+    }
+
+    final routines = await _db.getRoutines();
+    final enabledCount = routines.where((r) => r.enabled).length;
+    final rows = <String>[];
+    for (final r in routines.take(4)) {
+      final next3 = RoutineScheduler.formatNextOccurrencesPreview(r);
+      rows.add('${r.enabled ? '🟢' : '⚪'} [${r.modeLabel} ${r.timeSpec}] ${r.title}');
+      rows.add('   預覽：${next3.take(2).join('、')}');
+    }
+    if (rows.isEmpty) {
+      rows.add('目前尚無日常排程，點下面按鈕或輸入 `@排程 每天 07:30 追料` 即可建立。');
+    }
+
+    return ToolExecutionOutcome(
+      toolResponse: {'count': routines.length, 'enabled': enabledCount},
+      toolPill: '⏰ 日常排程（啟用 $enabledCount / 共 ${routines.length} 筆）',
+      card: ActionCardData(
+        type: 'routine',
+        badge: '⏰ 零算力日常排程總覽',
+        title: '啟用中 $enabledCount 筆 • 未來執行時間預覽',
+        rows: rows,
+        buttonLabel: '⏰ 開啟排程管理器（新增 / Cron / 預覽）',
+        payload: {},
+      ),
+      directReply: '這是目前的零算力日常排程清單（不消耗任何 AI 算力）：',
     );
   }
 }
