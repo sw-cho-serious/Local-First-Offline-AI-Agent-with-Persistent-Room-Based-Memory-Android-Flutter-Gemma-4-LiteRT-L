@@ -132,7 +132,7 @@ class MainActivity : FlutterActivity(), SensorEventListener {
             GhostOverlayService.INTENT_ACTION_OPEN_TODOS,
             GhostOverlayService.INTENT_ACTION_OPEN_CAMERA,
             GhostOverlayService.INTENT_ACTION_OPEN_NAV,
-            GhostOverlayService.INTENT_ACTION_OPEN_CUTTING,
+            GhostOverlayService.INTENT_ACTION_OPEN_LOOKUP,
             GhostOverlayService.INTENT_ACTION_OPEN_TEXT,
             GhostOverlayService.INTENT_ACTION_OPEN_ROUTINES,
             GhostOverlayService.INTENT_ACTION_SPOKEN_TEXT -> true

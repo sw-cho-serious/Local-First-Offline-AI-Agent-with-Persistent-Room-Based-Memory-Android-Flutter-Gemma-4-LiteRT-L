@@ -25,11 +25,11 @@ object GhostActionRegistry {
     const val ID_LATEST_PHOTO = "latest_photo"
     const val ID_TODO_PEEK = "todo_peek"
     const val ID_NEXT_ROUTINE = "next_routine"
-    const val ID_WEATHER_DOULIU = "weather_douliu"
+    const val ID_WEATHER = "weather"
     const val ID_QUICK_TIMER = "quick_timer"
     const val ID_REFRESH_BOARDS = "refresh_boards"
     const val ID_CALCULATOR = "calculator"
-    const val ID_OPEN_CUTTING = "open_cutting"
+    const val ID_OFFLINE_LOOKUP = "offline_lookup"
     const val ID_OPEN_ROOMS = "open_rooms"
     const val ID_OPEN_TEXT = "open_text"
 
@@ -50,11 +50,11 @@ object GhostActionRegistry {
         GhostActionMeta(ID_LATEST_PHOTO, "📷", "存最新照", inPlace = true),
         GhostActionMeta(ID_TODO_PEEK, "📌", "今日待辦", inPlace = true),
         GhostActionMeta(ID_NEXT_ROUTINE, "🕒", "下個排程", inPlace = true),
-        GhostActionMeta(ID_WEATHER_DOULIU, "🌦️", "現地天氣", inPlace = true),
+        GhostActionMeta(ID_WEATHER, "🌦️", "現地天氣", inPlace = true),
         GhostActionMeta(ID_QUICK_TIMER, "⏱️", "快速計時", inPlace = true),
         GhostActionMeta(ID_REFRESH_BOARDS, "📡", "刷新戰情", inPlace = true),
         GhostActionMeta(ID_CALCULATOR, "🧮", "計算機", inPlace = true),
-        GhostActionMeta(ID_OPEN_CUTTING, "🛠️", "離線查表", inPlace = false),
+        GhostActionMeta(ID_OFFLINE_LOOKUP, "🛠️", "離線查表", inPlace = false),
         GhostActionMeta(ID_OPEN_ROOMS, "📂", "案場工單", inPlace = false),
         GhostActionMeta(ID_OPEN_TEXT, "⌨️", "開啟對話", inPlace = false)
     )

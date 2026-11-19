@@ -691,7 +691,7 @@ class GhostInPlaceExecutors(private val service: GhostOverlayService) {
     // -------------------------------------------------------------------------
 
     @SuppressLint("MissingPermission")
-    fun executeWeatherDouliu() {
+    fun executeWeather() {
         service.showHudBanner("🌦️", "正在讀取現地天氣與風速…", "連線氣象資料中", durationMs = 4500L)
 
         ioPool.execute {

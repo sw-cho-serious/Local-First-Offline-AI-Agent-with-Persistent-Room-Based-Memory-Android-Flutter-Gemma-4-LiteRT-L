@@ -789,13 +789,13 @@ description: 天德大林案現場收尾核對清單
     // Sanitizes unknown IDs, duplicates, short lists, and long lists cleanly back to 6 unique IDs.
     final sanitized = WheelActionRegistry.sanitizeSlots([
       'bogus_id',
-      'weather_douliu',
-      'weather_douliu',
+      'weather',
+      'weather',
       'torch',
     ]);
     expect(sanitized.length, 6);
     expect(sanitized.toSet().length, 6);
-    expect(sanitized[0], 'weather_douliu');
+    expect(sanitized[0], 'weather');
     expect(sanitized[1], 'torch');
 
     final truncated = WheelActionRegistry.sanitizeSlots([

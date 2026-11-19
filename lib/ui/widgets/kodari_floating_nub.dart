@@ -104,7 +104,7 @@ class WheelActionRegistry {
       isInPlace: true,
     ),
     WheelActionSpec(
-      id: 'weather_douliu',
+      id: 'weather',
       emoji: '🌦️',
       label: '現地天氣',
       description: '現地溫度・降雨機率・風速幾級・日落',
@@ -136,7 +136,7 @@ class WheelActionRegistry {
       isInPlace: true,
     ),
     WheelActionSpec(
-      id: 'open_cutting',
+      id: 'offline_lookup',
       emoji: '🛠️',
       label: '離線查表',
       description: '開啟 App 離線查表／自訂公式查詢',
@@ -317,7 +317,7 @@ class KodariFloatingNub extends StatefulWidget {
     required this.onOpenTodos,
     required this.onOpenRooms,
     required this.onOpenNavigation,
-    required this.onOpenCuttingHelper,
+    required this.onOpenLookupHelper,
     required this.onToggleFlashlight,
     required this.onOpenTextInput,
     this.wheelSlots = WheelActionRegistry.defaultSlots,
@@ -339,7 +339,7 @@ class KodariFloatingNub extends StatefulWidget {
   final VoidCallback onOpenTodos;
   final VoidCallback onOpenRooms;
   final VoidCallback onOpenNavigation;
-  final VoidCallback onOpenCuttingHelper;
+  final VoidCallback onOpenLookupHelper;
   final Future<void> Function() onToggleFlashlight;
   final VoidCallback onOpenTextInput;
   final List<String> wheelSlots;
@@ -716,8 +716,8 @@ class _KodariFloatingNubState extends State<KodariFloatingNub>
         return widget.onOpenCamera;
       case 'todo_peek':
         return widget.onOpenTodos;
-      case 'open_cutting':
-        return widget.onOpenCuttingHelper;
+      case 'offline_lookup':
+        return widget.onOpenLookupHelper;
       case 'open_rooms':
         return widget.onOpenRooms;
       case 'open_text':

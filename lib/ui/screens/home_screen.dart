@@ -166,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _showPhotoPickerSheet();
     } else if (action == 'com.hako.kodari.ACTION_OPEN_NAV') {
       await _showNavigationQuickSheet();
-    } else if (action == 'com.hako.kodari.ACTION_OPEN_CUTTING') {
+    } else if (action == 'com.hako.kodari.ACTION_OPEN_LOOKUP') {
       await showOfflineLookupModal(
         context: context,
         db: widget.db,
@@ -827,7 +827,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       case 'quick_timer':
         await _showQuickTimerPickerDialog();
         return;
-      case 'weather_douliu':
+      case 'weather':
         _inputController.text = '@查網 我目前所在地今日天氣風速';
         await _sendMessage();
         return;
@@ -835,7 +835,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _inputController.text = '@找支援 REFRESH_ALL_BOARDS 刷新雙戰情板';
         await _sendMessage();
         return;
-      case 'open_cutting':
+      case 'offline_lookup':
       case 'calculator':
         await showOfflineLookupModal(
           context: context,
@@ -1569,7 +1569,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       onOpenTodos: _openTodosFromNub,
                       onOpenRooms: _openRoomsFromNub,
                       onOpenNavigation: _showNavigationQuickSheet,
-                      onOpenCuttingHelper: () => showOfflineLookupModal(
+                      onOpenLookupHelper: () => showOfflineLookupModal(
                         context: context,
                         db: widget.db,
                         onToast: _showToast,

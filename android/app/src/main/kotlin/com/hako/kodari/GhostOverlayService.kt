@@ -95,7 +95,7 @@ class GhostOverlayService : Service() {
         const val INTENT_ACTION_OPEN_TODOS = "com.hako.kodari.ACTION_OPEN_TODOS"
         const val INTENT_ACTION_OPEN_CAMERA = "com.hako.kodari.ACTION_OPEN_CAMERA"
         const val INTENT_ACTION_OPEN_NAV = "com.hako.kodari.ACTION_OPEN_NAV"
-        const val INTENT_ACTION_OPEN_CUTTING = "com.hako.kodari.ACTION_OPEN_CUTTING"
+        const val INTENT_ACTION_OPEN_LOOKUP = "com.hako.kodari.ACTION_OPEN_LOOKUP"
         const val INTENT_ACTION_OPEN_TEXT = "com.hako.kodari.ACTION_OPEN_TEXT"
         const val INTENT_ACTION_OPEN_ROUTINES = "com.hako.kodari.ACTION_OPEN_ROUTINES"
         const val INTENT_ACTION_SPOKEN_TEXT = "com.hako.kodari.ACTION_SPOKEN_TEXT"
@@ -874,9 +874,9 @@ class GhostOverlayService : Service() {
                 dismissWheelOverlay(restoreNub = false)
                 executors.showRoutinePeekCard()
             }
-            GhostActionRegistry.ID_WEATHER_DOULIU -> WheelTrack("🌦️", "現地天氣", false) {
+            GhostActionRegistry.ID_WEATHER -> WheelTrack("🌦️", "現地天氣", false) {
                 dismissWheelOverlay()
-                executors.executeWeatherDouliu()
+                executors.executeWeather()
             }
             GhostActionRegistry.ID_QUICK_TIMER -> WheelTrack("⏱️", "快速計時", false) {
                 dismissWheelOverlay(restoreNub = false)
@@ -890,9 +890,9 @@ class GhostOverlayService : Service() {
                 dismissWheelOverlay(restoreNub = false)
                 executors.showMiniCalculatorCard()
             }
-            GhostActionRegistry.ID_OPEN_CUTTING -> WheelTrack("🛠️", "離線查表", false) {
+            GhostActionRegistry.ID_OFFLINE_LOOKUP -> WheelTrack("🛠️", "離線查表", false) {
                 dismissWheelOverlay()
-                launchMainWithAction(INTENT_ACTION_OPEN_CUTTING)
+                launchMainWithAction(INTENT_ACTION_OPEN_LOOKUP)
             }
             GhostActionRegistry.ID_OPEN_ROOMS -> WheelTrack("📂", "案場工單", false) {
                 dismissWheelOverlay()
@@ -1752,7 +1752,7 @@ class GhostOverlayService : Service() {
         }
         if (lower.contains("天氣") || lower.contains("風速")) {
             dismissVoiceOverlay()
-            executors.executeWeatherDouliu()
+            executors.executeWeather()
             return true
         }
         if (lower.contains("關手電筒") || lower.contains("關掉手電筒") ||
