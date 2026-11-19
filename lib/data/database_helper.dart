@@ -232,10 +232,19 @@ class DatabaseHelper {
       'assets/seeds/machine_tuning.example.json',
     );
 
+    String? skillsRaw;
+    try {
+      skillsRaw = await _loadAssetWithFallback(
+        'assets/seeds/skills.local.json',
+        'assets/seeds/skills.example.json',
+      );
+    } catch (_) {}
+
     await seedFromStrings(
       personaJson: personaRaw,
       profilesJson: profilesRaw,
       tuningJson: tuningRaw,
+      skillsJson: skillsRaw,
     );
   }
 
@@ -243,6 +252,7 @@ class DatabaseHelper {
     required String personaJson,
     required String profilesJson,
     required String tuningJson,
+    String? skillsJson,
   }) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -432,32 +442,47 @@ class DatabaseHelper {
     if (skillCount == 0) {
       const defaultSkills = [
         (
-          id: 'skill_railing_sop',
-          name: '欄杆現場丈量SOP',
-          triggerKeywords: '欄杆,玻璃,立柱,丈量,二橫,三橫',
-          description: '二橫/三橫玻璃與直欞欄杆實測檢核：防呆孔距/外包尺寸、特殊鐵件提醒',
-          contentMd: '''### 欄杆丈量實測檢核 SOP
-- **尺寸角色必問清**：區分「結構外包總長」、「立柱跨距/孔距」與「鋁料實切長」，絕不直接拿總長或孔距當下料切長。
-- **093Z/094 長度提醒**：這兩款一律走 6400mm 定尺；其餘未確認實切長若缺尺寸直接停步詢問使用者。
-- **鐵件與白鐵覆核**：遇到預埋底板、L鐵、自折件或白鐵立柱，主動提醒人工覆核發外包。
-- **現場建議動作**：鼓勵用 `@量測標註` 直接在照片畫雙箭頭寫實測毫米存進案場房。''',
+          id: 'skill_measure_sop',
+          name: '現場量測SOP',
+          triggerKeywords: '量測,丈量,尺寸,實測,現場',
+          description: '現場尺寸量測檢核範例：先分清尺寸角色再下料，可在 skills.local.json 自訂你的專屬 SOP',
+          contentMd: '''### 現場量測檢核 SOP（範例）\n- **尺寸角色必問清**：區分「外包總長」、「跨距/孔距」與「實際加工長度」，不直接拿總長當加工長度。\n- **缺尺寸就停步**：關鍵尺寸未確認時，先詢問使用者，不自行假設。\n- **特殊件覆核**：遇到非標準件或外包件，主動提醒人工覆核。\n- **現場建議動作**：鼓勵用 `@量測標註` 直接在照片畫雙箭頭寫實測毫米存進對應房間。''',
         ),
         (
           id: 'skill_hardware_actions',
-          name: '工地硬體快捷助手',
+          name: '現場硬體快捷助手',
           triggerKeywords: '手電筒,開燈,關燈,太暗,打電話,撥號,導航,路線,熱點,WiFi,藍牙,倒數,計時器,震動',
-          description: '工地現場免選單：直接調用 device_action 控制手電筒、撥號、Maps導航、倒數計時與設定頁',
-          contentMd: '''### 工地原生硬體手腳呼叫指南 (`device_action`)
+          description: '現場免選單：直接調用 device_action 控制手電筒、撥號、Maps導航、倒數計時與設定頁',
+          contentMd: '''### 原生硬體手腳呼叫指南 (`device_action`)
 當使用者提出現場硬體或系統操作需求時，直接呼叫 `device_action` 工具：
 - **開/關手電筒** (`"太暗 / 開燈 / 關手電筒"`)：`action: "setFlashlight"`, `value: "on"` 或 `"off"`
 - **帶入撥號盤** (`"打給 09..." / "撥號..."`)：`action: "dialPhone"`, `value: "號碼"`（只填號開啟撥號盤，安全防誤撥）
-- **工地倒數/鬧鐘** (`"15分鐘後看烤漆" / "設倒數"`)：`action: "setTimerOrAlarm"`, `value: "15分鐘 看烤漆"`
+- **倒數/鬧鐘** (`"15分鐘後看烤漆" / "設倒數"`)：`action: "setTimerOrAlarm"`, `value: "15分鐘 看烤漆"`
 - **Google Maps 導航** (`"導航去..." / "找地址"`)：`action: "openMap"`, `value: "目的地地址或座標"`
 - **系統設定頁** (`"開熱點 / 連WiFi / 藍牙設定"`)：`action: "openSettings"`, `value: "wifi" | "bluetooth" | "hotspot" | "location"`''',
         ),
       ];
+      final extraSkills = <({String id, String name, String triggerKeywords, String description, String contentMd})>[];
+      if (skillsJson != null && skillsJson.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(skillsJson);
+          if (decoded is List) {
+            for (final e in decoded) {
+              if (e is Map && e['id'] != null && e['name'] != null) {
+                extraSkills.add((
+                  id: e['id'].toString(),
+                  name: e['name'].toString(),
+                  triggerKeywords: (e['trigger_keywords'] ?? '').toString(),
+                  description: (e['description'] ?? '').toString(),
+                  contentMd: (e['content_md'] ?? '').toString(),
+                ));
+              }
+            }
+          }
+        } catch (_) {}
+      }
       final batch = db.batch();
-      for (final s in defaultSkills) {
+      for (final s in [...defaultSkills, ...extraSkills]) {
         batch.insert(
           'skills',
           {

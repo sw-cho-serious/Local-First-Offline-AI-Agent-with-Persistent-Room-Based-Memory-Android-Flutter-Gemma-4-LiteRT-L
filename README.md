@@ -139,6 +139,7 @@ To customize your persona or offline lookup tables, copy `assets/seeds/*.example
 - `assets/seeds/persona_seed.local.json`
 - `assets/seeds/profiles.local.json`
 - `assets/seeds/machine_tuning.local.json`
+- `assets/seeds/skills.local.json`
 
 ### 3. Load On-Device Model Weights
 Push `gemma-4-E4B-it.litertlm` (~3.7 GB) to `/sdcard/Download/` on your Android device (or pick/download it from the launch gate screen):

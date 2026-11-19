@@ -1,0 +1,9 @@
+[
+  {
+    "id": "skill_example_custom",
+    "name": "自訂技能範例",
+    "trigger_keywords": "範例,示範",
+    "description": "複製為 skills.local.json 後可新增你自己的專屬 SOP / 技能",
+    "content_md": "### 自訂技能範例\n- 在這裡寫下你的專屬 SOP。\n- 觸發關鍵字出現在對話時，這段內容才會被載入。"
+  }
+]

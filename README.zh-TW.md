@@ -139,6 +139,7 @@ flutter pub get
 - `assets/seeds/persona_seed.local.json`
 - `assets/seeds/profiles.local.json`
 - `assets/seeds/machine_tuning.local.json`
+- `assets/seeds/skills.local.json`
 
 ### 3. 放入端側模型權重
 將 `gemma-4-E4B-it.litertlm`（約 3.7 GB）放入手機的 `/sdcard/Download/` 目錄（或透過 App 啟動閘門頁面手動選檔匯入 / Catalog 下載）：

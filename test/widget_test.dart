@@ -446,8 +446,8 @@ void main() {
   test('P4 JIT Skills CRUD, Markdown import, KV-preserving prompt, sync & native actions', () async {
     // 1. Seeded skills
     final seeded = await db.getSkills();
-    expect(seeded.any((s) => s.name == '欄杆現場丈量SOP'), isTrue);
-    expect(seeded.any((s) => s.name == '工地硬體快捷助手'), isTrue);
+    expect(seeded.any((s) => s.name == '現場量測SOP'), isTrue);
+    expect(seeded.any((s) => s.name == '現場硬體快捷助手'), isTrue);
 
     // 2. Parse Markdown with YAML frontmatter
     const sampleMd = '''
