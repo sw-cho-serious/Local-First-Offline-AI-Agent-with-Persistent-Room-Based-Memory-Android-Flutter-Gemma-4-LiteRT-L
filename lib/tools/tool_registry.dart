@@ -46,15 +46,15 @@ class ToolRegistry {
 
   static const List<AtToolOption> atOptions = [
     AtToolOption(
-      atLabel: '@查鋁料',
+      atLabel: '@查材料',
       toolName: 'lookup_profile',
-      subtitle: '77款規格/單重/排抽',
+      subtitle: '材料規格/單重/自訂料表',
       colorHex: '#F59E0B',
     ),
     AtToolOption(
-      atLabel: '@查調機',
+      atLabel: '@查公式',
       toolName: 'lookup_machine_tuning',
-      subtitle: 'NC沖孔/跨距/鋸路公式',
+      subtitle: '加工參數/自訂公式',
       colorHex: '#38BDF8',
     ),
     AtToolOption(
@@ -175,8 +175,10 @@ class ToolRegistry {
       '找記憶': '@搜記憶',
       '搜尋記憶': '@搜記憶',
       '查記憶': '@搜記憶',
-      '查鋁料': '@查鋁料',
-      '查調機': '@查調機',
+      '查材料': '@查材料',
+      '查公式': '@查公式',
+      '查鋁料': '@查材料',
+      '查調機': '@查公式',
       '記待辦': '@記待辦',
       '寫待辦': '@記待辦',
       '新增待辦': '@記待辦',
@@ -244,6 +246,8 @@ class ToolRegistry {
     if (!trimmed.startsWith('@')) return null;
 
     const aliases = <String, int>{
+      '@查材料': 0,
+      '@查公式': 1,
       '@查鋁料': 0,
       '@查調機': 1,
       '@記待辦': 2,
@@ -661,7 +665,7 @@ class ToolRegistry {
       return ToolExecutionOutcome(
         toolResponse: {'found': false, 'message': '查無料號 $code，嚴禁自行推測單重。'},
         toolPill: '🔍 lookup_profile：查無 $code',
-        directReply: 'SQLite 料表裡找不到「$code」，照廠裡規矩我不亂猜，再確認一下料號。',
+        directReply: 'SQLite 料表裡找不到「$code」，我不亂猜，請再確認一下料號。',
       );
     }
 
@@ -720,7 +724,7 @@ class ToolRegistry {
       return ToolExecutionOutcome(
         toolResponse: {'found': false, 'message': '查無參數，嚴禁模型推論。'},
         toolPill: '🔧 lookup_machine_tuning：查無參數',
-        directReply: '「$query」在已驗證調機庫裡查無參數，不亂編，現場實測完再補進來。',
+        directReply: '「$query」在已驗證公式庫裡查無參數，不亂編，實測完再補進來。',
       );
     }
 
@@ -733,10 +737,10 @@ class ToolRegistry {
 
     final card = ActionCardData(
       type: 'tuning',
-      badge: '🔧 已驗證加工／調機參數',
+      badge: '🔧 已驗證加工／公式參數',
       title: first.title,
       rows: rows,
-      buttonLabel: '📋 複製調機公式',
+      buttonLabel: '📋 複製公式',
       payload: {'copyText': '${first.title}：${first.formula}'},
     );
 

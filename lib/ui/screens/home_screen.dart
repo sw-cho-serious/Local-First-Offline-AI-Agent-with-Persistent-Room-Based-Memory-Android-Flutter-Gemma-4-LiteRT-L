@@ -2129,7 +2129,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               }
             },
             itemBuilder: (ctx) => [
-              const PopupMenuItem(value: 'lookup', child: Text('🔍 離線快查（鋁料／調機）', style: TextStyle(color: Color(0xFFFCD34D), fontSize: 13))),
+              const PopupMenuItem(value: 'lookup', child: Text('🔍 離線快查（材料／公式）', style: TextStyle(color: Color(0xFFFCD34D), fontSize: 13))),
               const PopupMenuItem(value: 'routines', child: Text('⏰ 零算力日常排程', style: TextStyle(color: Color(0xFFF59E0B), fontSize: 13))),
               const PopupMenuItem(value: 'skills', child: Text('📜 Skill 知識包管理', style: TextStyle(color: Color(0xFFF472B6), fontSize: 13))),
               const PopupMenuItem(value: 'new_topic', child: Text('✂️ 開始新話題（不刪歷史）', style: TextStyle(color: Colors.white, fontSize: 13))),

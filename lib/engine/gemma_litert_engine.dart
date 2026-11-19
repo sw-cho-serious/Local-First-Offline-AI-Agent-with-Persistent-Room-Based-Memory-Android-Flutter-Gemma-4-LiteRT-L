@@ -864,7 +864,7 @@ class GemmaLiteRtEngine implements LlmEngine {
           ? ''
           : '\n📜 本輪已動態載入「${triggeredSkills.map((s) => s.name).join('、')}」，正式載入 Gemma 4 後會直接依循該 Skill 規範回答！';
       yield EngineTextChunk(
-        '收到「$userText」。目前處於離線預覽模式（還沒載入 Gemma 4 權重），但上面可以點 @ 工具卡直接查鋁料／調機／排日曆／硬體動作，或長按氣泡歸檔。$skillNote',
+        '收到「$userText」。目前處於離線預覽模式（還沒載入 Gemma 4 權重），但上面可以點 @ 工具卡直接查材料／公式／排日曆／硬體動作，或長按氣泡歸檔。$skillNote',
       );
       yield const EngineStateHint(SpiritState.idle);
       return;
@@ -969,7 +969,7 @@ class GemmaLiteRtEngine implements LlmEngine {
           await _closeActiveChatOnly();
         }
 
-        // If user explicitly mounted @查鋁料 or @查調機 and Gemma forgot to emit a tool call,
+        // If user explicitly mounted @查材料 or @查公式 and Gemma forgot to emit a tool call,
         // execute the deterministic SQLite lookup so the user still gets the exact card.
         if (!usedTool &&
             mountedTool != null &&

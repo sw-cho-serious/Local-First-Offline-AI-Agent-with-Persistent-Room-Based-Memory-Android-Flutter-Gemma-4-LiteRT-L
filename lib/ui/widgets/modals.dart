@@ -363,7 +363,7 @@ Future<void> showOfflineLookupModal({
                             children: [
                               if (tunings.isNotEmpty) ...[
                                 const Text(
-                                  '🔧 調機與加工公式',
+                                  '🔧 加工與自訂公式',
                                   style: TextStyle(fontSize: 12, color: Color(0xFF38BDF8), fontWeight: FontWeight.w600),
                                 ),
                                 const SizedBox(height: 6),
@@ -394,7 +394,7 @@ Future<void> showOfflineLookupModal({
                                               padding: EdgeInsets.zero,
                                               onPressed: () async {
                                                 await Clipboard.setData(ClipboardData(text: '${t.title}: ${t.formula}'));
-                                                onToast('📋 已複製調機公式');
+                                                onToast('📋 已複製公式');
                                               },
                                             ),
                                           ],
@@ -412,7 +412,7 @@ Future<void> showOfflineLookupModal({
                               if (profiles.isNotEmpty) ...[
                                 const SizedBox(height: 4),
                                 Text(
-                                  '🔩 鋁料規格與單重（顯示 ${profiles.length} 筆）',
+                                  '🔩 材料規格與單重（顯示 ${profiles.length} 筆）',
                                   style: const TextStyle(fontSize: 12, color: Color(0xFFFCD34D), fontWeight: FontWeight.w600),
                                 ),
                                 const SizedBox(height: 6),

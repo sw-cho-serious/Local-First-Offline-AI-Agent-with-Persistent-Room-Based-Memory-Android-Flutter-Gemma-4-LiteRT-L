@@ -303,7 +303,7 @@ class NativeActions {
     const androidDetails = AndroidNotificationDetails(
       'xiaoliu_reminders',
       'KODARI 現場提醒',
-      channelDescription: '出車、調機與現場待辦鬧鐘提醒',
+      channelDescription: '出車、現場作業與待辦鬧鐘提醒',
       importance: Importance.max,
       priority: Priority.high,
     );
