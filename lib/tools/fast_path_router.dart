@@ -115,7 +115,7 @@ class FastPathRouter {
       );
     }
 
-    // 4. Google Maps navigation (e.g., "導航去古坑新生路", "帶我去斗六火車站")
+    // 4. Google Maps navigation (e.g., "導航去台北車站", "帶我去高雄港")
     final mapMatch = RegExp(
       r'^(?:導航去|導航到|開地圖去|帶我去|開導航去|Google Maps\s*導航)\s*(.+)$',
       caseSensitive: false,

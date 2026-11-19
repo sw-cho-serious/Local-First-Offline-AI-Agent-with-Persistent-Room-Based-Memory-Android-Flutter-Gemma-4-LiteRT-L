@@ -54,7 +54,7 @@ object GhostActionRegistry {
         GhostActionMeta(ID_QUICK_TIMER, "⏱️", "快速計時", inPlace = true),
         GhostActionMeta(ID_REFRESH_BOARDS, "📡", "刷新戰情", inPlace = true),
         GhostActionMeta(ID_CALCULATOR, "🧮", "計算機", inPlace = true),
-        GhostActionMeta(ID_OPEN_CUTTING, "🛠️", "鋁料切料", inPlace = false),
+        GhostActionMeta(ID_OPEN_CUTTING, "🛠️", "離線查表", inPlace = false),
         GhostActionMeta(ID_OPEN_ROOMS, "📂", "案場工單", inPlace = false),
         GhostActionMeta(ID_OPEN_TEXT, "⌨️", "開啟對話", inPlace = false)
     )

@@ -828,7 +828,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         await _showQuickTimerPickerDialog();
         return;
       case 'weather_douliu':
-        _inputController.text = '@查網 雲林斗六今日天氣風速';
+        _inputController.text = '@查網 我目前所在地今日天氣風速';
         await _sendMessage();
         return;
       case 'refresh_boards':
@@ -986,7 +986,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               autofocus: true,
               style: const TextStyle(color: Colors.white, fontSize: 13.5),
               decoration: InputDecoration(
-                hintText: '輸入目的地或案場（如 斗六工業區）',
+                hintText: '輸入目的地或案場（如 台北車站）',
                 hintStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 12.5),
                 filled: true,
                 fillColor: const Color(0xFF0E1014),

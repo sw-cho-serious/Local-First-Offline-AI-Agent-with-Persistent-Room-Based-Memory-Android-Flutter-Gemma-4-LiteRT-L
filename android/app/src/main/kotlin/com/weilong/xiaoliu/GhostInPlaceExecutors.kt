@@ -695,9 +695,9 @@ class GhostInPlaceExecutors(private val service: GhostOverlayService) {
         service.showHudBanner("🌦️", "正在讀取現地天氣與風速…", "連線氣象資料中", durationMs = 4500L)
 
         ioPool.execute {
-            var lat = 23.7094
-            var lng = 120.5433
-            var placeLabel = "預設地點"
+            var lat: Double? = null
+            var lng: Double? = null
+            val placeLabel = "現地位置"
 
             val fine = ContextCompat.checkSelfPermission(
                 service,
@@ -720,9 +720,15 @@ class GhostInPlaceExecutors(private val service: GhostOverlayService) {
                     if (best != null && System.currentTimeMillis() - best!!.time <= 30 * 60_000L) {
                         lat = best!!.latitude
                         lng = best!!.longitude
-                        placeLabel = "現地位置"
                     }
                 } catch (_: Exception) {}
+            }
+
+            if (lat == null || lng == null) {
+                mainHandler.post {
+                    service.showHudBanner("📍", "無法取得目前位置", "請開啟定位權限後再試", durationMs = 4000L)
+                }
+                return@execute
             }
 
             var conn: HttpURLConnection? = null
@@ -731,7 +737,7 @@ class GhostInPlaceExecutors(private val service: GhostOverlayService) {
                     Locale.US,
                     "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f" +
                         "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m" +
-                        "&hourly=precipitation_probability&daily=sunset&timezone=Asia%%2FTaipei&forecast_days=1",
+                        "&hourly=precipitation_probability&daily=sunset&timezone=auto&forecast_days=1",
                     lat,
                     lng
                 )

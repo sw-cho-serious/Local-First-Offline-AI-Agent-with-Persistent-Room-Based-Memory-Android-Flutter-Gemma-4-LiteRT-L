@@ -714,7 +714,7 @@ class GhostOverlayService : Service() {
                 dismissWheelOverlay(restoreNub = false)
                 executors.showMiniCalculatorCard()
             }
-            GhostActionRegistry.ID_OPEN_CUTTING -> WheelTrack("🛠️", "鋁料切料", false) {
+            GhostActionRegistry.ID_OPEN_CUTTING -> WheelTrack("🛠️", "離線查表", false) {
                 dismissWheelOverlay()
                 launchMainWithAction(INTENT_ACTION_OPEN_CUTTING)
             }
