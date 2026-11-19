@@ -63,6 +63,7 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
@@ -124,6 +125,13 @@ class GhostOverlayService : Service() {
     private var pendingDragY = 0
     private var dragFramePending = false
     private var isActivelyDragging = false
+    private var dragWindowSize = 0
+
+    // Bottom-center drag-to-dismiss target (Chat Heads style)
+    private var dismissTargetOverlay: FrameLayout? = null
+    private var dismissTargetCircle: FrameLayout? = null
+    private var dismissTargetIcon: TextView? = null
+    private var isOverDismissTarget = false
 
     private val dragFrameCallback = Choreographer.FrameCallback {
         dragFramePending = false
@@ -137,6 +145,7 @@ class GhostOverlayService : Service() {
                 windowManager?.updateViewLayout(container, p)
             } catch (_: Exception) {}
         }
+        checkDismissTargetProximity(pendingDragX, pendingDragY)
     }
 
     // Native torch state
@@ -281,6 +290,7 @@ class GhostOverlayService : Service() {
         try {
             cameraManager?.unregisterTorchCallback(torchCallback)
         } catch (_: Exception) {}
+        hideDismissTarget()
         removeOverlayView()
         super.onDestroy()
     }
@@ -464,11 +474,13 @@ class GhostOverlayService : Service() {
                     isActivelyDragging = false
                     cachedScreenW = resources.displayMetrics.widthPixels
                     cachedScreenH = resources.displayMetrics.heightPixels
+                    dragWindowSize = windowSize
                     initialX = p.x
                     initialY = p.y
                     downRawX = event.rawX
                     downRawY = event.rawY
                     isDragging = false
+                    isOverDismissTarget = false
                     longPressTriggered = false
                     vibrateShort(12L)
                     img.animate()
@@ -487,12 +499,13 @@ class GhostOverlayService : Service() {
                         isDragging = true
                         isActivelyDragging = true
                         mainHandler.removeCallbacks(longPressRunnable)
+                        showDismissTarget()
                     }
                     if (isDragging && !longPressTriggered) {
                         val minX = -pad - dp(12)
                         val maxX = (cachedScreenW - iconSize - pad + dp(12)).coerceAtLeast(minX)
                         val curMinY = dp(56)
-                        val curMaxY = (cachedScreenH - windowSize - dp(80)).coerceAtLeast(curMinY)
+                        val curMaxY = (cachedScreenH - windowSize - dp(8)).coerceAtLeast(curMinY)
                         pendingDragX = (initialX + dx.toInt()).coerceIn(minX, maxX)
                         pendingDragY = (initialY + dy.toInt()).coerceIn(curMinY, curMaxY)
                         if (!dragFramePending) {
@@ -507,7 +520,16 @@ class GhostOverlayService : Service() {
                     Choreographer.getInstance().removeFrameCallback(dragFrameCallback)
                     dragFramePending = false
                     val wasDragging = isDragging
+                    val shouldDismiss = wasDragging && !longPressTriggered && isOverDismissTarget &&
+                        event.actionMasked == MotionEvent.ACTION_UP
                     isActivelyDragging = false
+                    isOverDismissTarget = false
+                    hideDismissTarget()
+
+                    if (shouldDismiss) {
+                        disableGhostFromDrag()
+                        return@setOnTouchListener true
+                    }
 
                     if (wasDragging && !longPressTriggered) {
                         val curW = if (cachedScreenW > 0) cachedScreenW else resources.displayMetrics.widthPixels
@@ -601,6 +623,160 @@ class GhostOverlayService : Service() {
         overlayContainer = null
         overlayParams = null
         spriteImage = null
+    }
+
+    private fun showDismissTarget() {
+        if (dismissTargetOverlay != null) return
+        val wm = windowManager ?: return
+        val frameSize = dp(88)
+        val circleSize = dp(58)
+
+        val root = FrameLayout(this).apply {
+            alpha = 0f
+            translationY = dp(24).toFloat()
+        }
+        val circleBg = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0xCC181B22.toInt())
+            setStroke(dp(2), 0xCCFFFFFF.toInt())
+        }
+        val circle = FrameLayout(this).apply {
+            background = circleBg
+            elevation = dp(8).toFloat()
+        }
+        val icon = TextView(this).apply {
+            text = "✕"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+        }
+        circle.addView(
+            icon,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        root.addView(
+            circle,
+            FrameLayout.LayoutParams(circleSize, circleSize, Gravity.CENTER)
+        )
+
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+        val params = WindowManager.LayoutParams(
+            frameSize,
+            frameSize,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = dp(40)
+        }
+
+        try {
+            wm.addView(root, params)
+            dismissTargetOverlay = root
+            dismissTargetCircle = circle
+            dismissTargetIcon = icon
+            root.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(150L)
+                .start()
+        } catch (_: Exception) {
+            dismissTargetOverlay = null
+            dismissTargetCircle = null
+            dismissTargetIcon = null
+        }
+    }
+
+    private fun checkDismissTargetProximity(dragX: Int, dragY: Int) {
+        if (dismissTargetOverlay == null) return
+        val w = if (cachedScreenW > 0) cachedScreenW else resources.displayMetrics.widthPixels
+        val h = if (cachedScreenH > 0) cachedScreenH else resources.displayMetrics.heightPixels
+        val halfWin = (if (dragWindowSize > 0) dragWindowSize else dp(84)) / 2f
+        val nubCx = dragX + halfWin
+        val nubCy = dragY + halfWin
+
+        val targetCx = w / 2f
+        val targetCy = h - dp(40) - dp(44)
+        val dist = hypot((nubCx - targetCx).toDouble(), (nubCy - targetCy).toDouble())
+        val armed = dist <= dp(78)
+
+        if (armed != isOverDismissTarget) {
+            isOverDismissTarget = armed
+            updateDismissTargetHoverState(armed)
+        }
+    }
+
+    private fun updateDismissTargetHoverState(armed: Boolean) {
+        val circle = dismissTargetCircle ?: return
+        val icon = dismissTargetIcon ?: return
+        val bg = circle.background as? GradientDrawable
+        if (armed) {
+            vibrateShort(18L)
+            bg?.setColor(0xE6991B1B.toInt())
+            bg?.setStroke(dp(2), 0xFFF87171.toInt())
+            icon.setTextColor(0xFFFEE2E2.toInt())
+            circle.animate()
+                .scaleX(1.18f)
+                .scaleY(1.18f)
+                .setDuration(110L)
+                .start()
+            spriteImage?.animate()
+                ?.scaleX(0.9f)
+                ?.scaleY(0.9f)
+                ?.alpha(0.8f)
+                ?.setDuration(110L)
+                ?.start()
+        } else {
+            bg?.setColor(0xCC181B22.toInt())
+            bg?.setStroke(dp(2), 0xCCFFFFFF.toInt())
+            icon.setTextColor(Color.WHITE)
+            circle.animate()
+                .scaleX(1.0f)
+                .scaleY(1.0f)
+                .setDuration(110L)
+                .start()
+            spriteImage?.animate()
+                ?.scaleX(1.15f)
+                ?.scaleY(1.15f)
+                ?.alpha(ACTIVE_ALPHA)
+                ?.setDuration(110L)
+                ?.start()
+        }
+    }
+
+    private fun hideDismissTarget() {
+        val view = dismissTargetOverlay ?: return
+        dismissTargetOverlay = null
+        dismissTargetCircle = null
+        dismissTargetIcon = null
+        try {
+            windowManager?.removeView(view)
+        } catch (_: Exception) {}
+    }
+
+    private fun disableGhostFromDrag() {
+        vibrateShort(28L)
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_OVERLAY_ENABLED, false)
+            .apply()
+        getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("flutter.hako_ghost_overlay_enabled", false)
+            .apply()
+        stopSelf()
     }
 
     // -------------------------------------------------------------------------

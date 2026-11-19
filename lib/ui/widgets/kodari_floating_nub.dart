@@ -327,6 +327,7 @@ class KodariFloatingNub extends StatefulWidget {
     this.voiceRmsLevel = 0.0,
     this.onCancelVoice,
     this.onFinishVoice,
+    this.onDismissNub,
   });
 
   final KodariFloatingNubController controller;
@@ -350,6 +351,7 @@ class KodariFloatingNub extends StatefulWidget {
   final double voiceRmsLevel;
   final VoidCallback? onCancelVoice;
   final VoidCallback? onFinishVoice;
+  final VoidCallback? onDismissNub;
 
   @override
   State<KodariFloatingNub> createState() => _KodariFloatingNubState();
@@ -376,6 +378,7 @@ class _KodariFloatingNubState extends State<KodariFloatingNub>
   int _frameIndex = 0;
   bool _isIdleDocked = false;
   bool _isDragging = false;
+  bool _isOverDismissTarget = false;
   bool _dockedRight = true;
   double _yFraction = 0.68;
   Offset? _dragOffset;
@@ -531,6 +534,52 @@ class _KodariFloatingNubState extends State<KodariFloatingNub>
                 child: _buildRadialWheelOverlay(),
               ),
 
+            // 2.5. Bottom-center drag-to-dismiss target (Chat Heads style)
+            if (_isDragging && widget.onDismissNub != null && !widget.controller.wheelOpen && !widget.isListeningVoice)
+              Positioned(
+                left: (maxW - 68) / 2,
+                bottom: 28,
+                child: IgnorePointer(
+                  child: AnimatedScale(
+                    scale: _isOverDismissTarget ? 1.18 : 1.0,
+                    duration: const Duration(milliseconds: 110),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 110),
+                      width: 68,
+                      height: 68,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _isOverDismissTarget
+                            ? const Color(0xE6991B1B)
+                            : const Color(0xCC181B22),
+                        border: Border.all(
+                          color: _isOverDismissTarget
+                              ? const Color(0xFFF87171)
+                              : Colors.white.withValues(alpha: 0.78),
+                          width: _isOverDismissTarget ? 2.0 : 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _isOverDismissTarget
+                                ? const Color(0x66EF4444)
+                                : Colors.black.withValues(alpha: 0.45),
+                            blurRadius: 16,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 28,
+                        color: _isOverDismissTarget
+                            ? const Color(0xFFFEE2E2)
+                            : Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             // 3. Edge-docked draggable KODARI floating nub
             if (!widget.controller.wheelOpen && !widget.isListeningVoice)
               AnimatedPositioned(
@@ -539,7 +588,10 @@ class _KodariFloatingNubState extends State<KodariFloatingNub>
                     : const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
                 left: pos.dx.clamp(0.0, math.max<double>(0.0, maxW - nubBoxSize)),
-                top: pos.dy.clamp(60.0, math.max<double>(60.0, maxH - 126.0)),
+                top: pos.dy.clamp(
+                  60.0,
+                  math.max<double>(60.0, _isDragging ? (maxH - nubBoxSize - 12.0) : (maxH - 126.0)),
+                ),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
@@ -556,29 +608,57 @@ class _KodariFloatingNubState extends State<KodariFloatingNub>
                     _startSpriteLoop();
                     setState(() {
                       _isDragging = true;
+                      _isOverDismissTarget = false;
                       _dragOffset = Offset(defaultX, defaultY);
                     });
                   },
                   onPanUpdate: (details) {
-                    setState(() {
-                      final cur = _dragOffset ?? Offset(defaultX, defaultY);
-                      _dragOffset = Offset(
-                        (cur.dx + details.delta.dx)
-                            .clamp(0.0, math.max<double>(0.0, maxW - nubBoxSize))
-                            .toDouble(),
-                        (cur.dy + details.delta.dy)
-                            .clamp(60.0, math.max<double>(60.0, maxH - 126.0))
-                            .toDouble(),
+                    final cur = _dragOffset ?? Offset(defaultX, defaultY);
+                    final next = Offset(
+                      (cur.dx + details.delta.dx)
+                          .clamp(0.0, math.max<double>(0.0, maxW - nubBoxSize))
+                          .toDouble(),
+                      (cur.dy + details.delta.dy)
+                          .clamp(60.0, math.max<double>(60.0, maxH - nubBoxSize - 12.0))
+                          .toDouble(),
+                    );
+                    var armed = false;
+                    if (widget.onDismissNub != null) {
+                      final nubCx = next.dx + nubBoxSize / 2;
+                      final nubCy = next.dy + nubBoxSize / 2;
+                      final targetCx = maxW / 2;
+                      final targetCy = maxH - 28.0 - 34.0;
+                      final dist = math.sqrt(
+                        math.pow(nubCx - targetCx, 2) + math.pow(nubCy - targetCy, 2),
                       );
+                      armed = dist <= 68.0;
+                    }
+                    if (armed && !_isOverDismissTarget) {
+                      HapticFeedback.mediumImpact();
+                    }
+                    setState(() {
+                      _dragOffset = next;
+                      _isOverDismissTarget = armed;
                     });
                   },
                   onPanEnd: (_) {
+                    if (_isOverDismissTarget && widget.onDismissNub != null) {
+                      HapticFeedback.heavyImpact();
+                      setState(() {
+                        _isDragging = false;
+                        _isOverDismissTarget = false;
+                        _dragOffset = null;
+                      });
+                      widget.onDismissNub!.call();
+                      return;
+                    }
                     final cur = _dragOffset ?? Offset(defaultX, defaultY);
                     final centerX = cur.dx + nubBoxSize / 2;
                     final dockRight = centerX >= maxW / 2;
                     final nextFrac = (cur.dy / math.max(1.0, maxH)).clamp(0.12, 0.82);
                     setState(() {
                       _isDragging = false;
+                      _isOverDismissTarget = false;
                       _dockedRight = dockRight;
                       _yFraction = nextFrac;
                       _dragOffset = null;

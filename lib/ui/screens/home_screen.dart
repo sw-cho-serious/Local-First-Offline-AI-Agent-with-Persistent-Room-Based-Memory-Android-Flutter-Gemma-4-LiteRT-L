@@ -1580,6 +1580,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       voiceRmsLevel: _voiceRmsLevel,
                       onCancelVoice: () => unawaited(NativeActions.cancelSpeechListening()),
                       onFinishVoice: () => unawaited(NativeActions.stopSpeechListening()),
+                      onDismissNub: () {
+                        setState(() => _inAppNubEnabled = false);
+                        unawaited(FloatingOverlayPreferences.setInAppNubEnabled(false));
+                        _showToast('👻 已關閉 App 內懸浮球（可於設定重新開啟）');
+                      },
                     ),
                   ),
                 if (_topToastMsg != null)
