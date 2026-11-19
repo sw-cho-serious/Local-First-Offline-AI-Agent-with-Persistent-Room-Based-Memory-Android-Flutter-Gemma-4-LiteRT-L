@@ -257,7 +257,7 @@ class DatabaseHelper {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // 1. Seed traits if empty, or seamlessly upgrade legacy 小六 persona to KODARI
+    // 1. Seed traits if empty
     final personaMap = jsonDecode(personaJson) as Map<String, dynamic>;
     final traitCount = Sqflite.firstIntValue(
           await db.rawQuery('SELECT COUNT(*) FROM traits WHERE is_deleted = 0'),
@@ -279,41 +279,6 @@ class DatabaseHelper {
         );
       }
       await batch.commit(noResult: true);
-    } else {
-      final existingSoulRows = await db.query(
-        'traits',
-        where: "name = 'SOUL.md' AND is_deleted = 0",
-        limit: 1,
-      );
-      if (existingSoulRows.isNotEmpty) {
-        final soulContent = existingSoulRows.first['content'] as String? ?? '';
-        if (soulContent.contains('小六') || soulContent.contains('第六席')) {
-          for (final key in ['SOUL.md', 'VOICE.md']) {
-            if (personaMap.containsKey(key)) {
-              await db.update(
-                'traits',
-                {
-                  'content': personaMap[key].toString(),
-                  'updated_at': now,
-                  'sync_status': 'pending',
-                },
-                where: 'name = ?',
-                whereArgs: [key],
-              );
-            }
-          }
-          await db.update(
-            'rooms',
-            {
-              'title': 'KODARI 主房間',
-              'subtitle': 'HAKO 大廳 • 一秒開聊／隨手記',
-              'updated_at': now,
-              'sync_status': 'pending',
-            },
-            where: "room_id = 'main' AND title = '小六主房間'",
-          );
-        }
-      }
     }
 
     // Ensure MEMORY.md exists for autonomous background user-fact distillation

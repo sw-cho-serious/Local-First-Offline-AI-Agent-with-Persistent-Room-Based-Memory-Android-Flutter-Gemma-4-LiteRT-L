@@ -44,6 +44,11 @@ class ToolRegistry {
 
   final DatabaseHelper _db;
 
+  /// Default estimation parameters for [_runLookupProfile]; adjust to your own shop rules.
+  static const double defaultLossFactor = 1.09;
+  static const double defaultKerfMm = 3.5;
+  static const double defaultBulkThresholdKg = 300.0;
+
   static const List<AtToolOption> atOptions = [
     AtToolOption(
       atLabel: '@查材料',
@@ -675,18 +680,18 @@ class ToolRegistry {
 
     final rows = <String>[
       '單米重：${first.weightPerM.toStringAsFixed(2)} kg/m',
-      '定尺規則：${first.stockRule}（鋸路 3.5mm）',
-      '特殊排抽：${first.extrudable ? '可排抽料型（累計 >=300kg 走排抽）' : '固定走一般定尺開料'}',
+      '定尺規則：${first.stockRule}（鋸路 ${defaultKerfMm}mm）',
+      '特殊排抽：${first.extrudable ? '可排抽料型（累計 >=${defaultBulkThresholdKg.toStringAsFixed(0)}kg 走排抽）' : '固定走一般定尺開料'}',
     ];
 
     if (lengthMm != null && qty != null && lengthMm > 0 && qty > 0) {
       final totalKg = (lengthMm / 1000.0) * qty * first.weightPerM;
-      final prepKg = totalKg * 1.09;
+      final prepKg = totalKg * defaultLossFactor;
       rows.add(
-        '試算重量：$qty 支 × ${lengthMm.toStringAsFixed(0)}mm = ${totalKg.toStringAsFixed(2)} kg（1.09 備料 ${prepKg.toStringAsFixed(2)} kg）',
+        '試算重量：$qty 支 × ${lengthMm.toStringAsFixed(0)}mm = ${totalKg.toStringAsFixed(2)} kg（$defaultLossFactor 備料 ${prepKg.toStringAsFixed(2)} kg）',
       );
-      if (first.extrudable && totalKg >= 300.0) {
-        rows.add('🔴 達 300kg 排抽門檻，建議訂製特殊定尺！');
+      if (first.extrudable && totalKg >= defaultBulkThresholdKg) {
+        rows.add('🔴 達 ${defaultBulkThresholdKg.toStringAsFixed(0)}kg 大量門檻，建議訂製特殊定尺！');
       }
     }
     if (first.note.isNotEmpty) {
