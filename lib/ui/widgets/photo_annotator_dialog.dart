@@ -247,7 +247,7 @@ class _PhotoAnnotatorDialogState extends State<_PhotoAnnotatorDialog> {
       final pngBytes = byteData.buffer.asUint8List();
 
       final appDir = await getApplicationDocumentsDirectory();
-      final photosDir = Directory(p.join(appDir.path, 'xiaoliu_photos'));
+      final photosDir = Directory(p.join(appDir.path, 'kodari_photos'));
       if (!await photosDir.exists()) {
         await photosDir.create(recursive: true);
       }

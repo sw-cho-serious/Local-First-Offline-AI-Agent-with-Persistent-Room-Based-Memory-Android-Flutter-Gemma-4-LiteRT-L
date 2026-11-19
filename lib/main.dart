@@ -20,11 +20,11 @@ void main() {
   final tools = ToolRegistry(db);
   final engine = GemmaLiteRtEngine(db: db, toolRegistry: tools);
 
-  runApp(XiaoLiuApp(db: db, engine: engine, syncService: syncService));
+  runApp(KodariApp(db: db, engine: engine, syncService: syncService));
 }
 
-class XiaoLiuApp extends StatefulWidget {
-  const XiaoLiuApp({
+class KodariApp extends StatefulWidget {
+  const KodariApp({
     super.key,
     required this.db,
     required this.engine,
@@ -36,10 +36,10 @@ class XiaoLiuApp extends StatefulWidget {
   final CloudSyncService syncService;
 
   @override
-  State<XiaoLiuApp> createState() => _XiaoLiuAppState();
+  State<KodariApp> createState() => _KodariAppState();
 }
 
-class _XiaoLiuAppState extends State<XiaoLiuApp> {
+class _KodariAppState extends State<KodariApp> {
   bool _booting = true;
   bool _showHome = false;
 

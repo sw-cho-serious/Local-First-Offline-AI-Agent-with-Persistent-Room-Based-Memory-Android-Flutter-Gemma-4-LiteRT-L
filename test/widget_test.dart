@@ -7,18 +7,18 @@ import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:xiaoliu/core/async_mutex.dart';
-import 'package:xiaoliu/core/image_compressor.dart';
-import 'package:xiaoliu/core/token_estimator.dart';
-import 'package:xiaoliu/data/database_helper.dart';
-import 'package:xiaoliu/data/models.dart';
-import 'package:xiaoliu/engine/gemma_litert_engine.dart';
-import 'package:xiaoliu/tools/fast_path_router.dart';
-import 'package:xiaoliu/tools/native_actions.dart';
-import 'package:xiaoliu/tools/routine_scheduler.dart';
-import 'package:xiaoliu/tools/tool_registry.dart';
-import 'package:xiaoliu/tools/web_search_service.dart';
-import 'package:xiaoliu/ui/widgets/kodari_floating_nub.dart';
+import 'package:kodari/core/async_mutex.dart';
+import 'package:kodari/core/image_compressor.dart';
+import 'package:kodari/core/token_estimator.dart';
+import 'package:kodari/data/database_helper.dart';
+import 'package:kodari/data/models.dart';
+import 'package:kodari/engine/gemma_litert_engine.dart';
+import 'package:kodari/tools/fast_path_router.dart';
+import 'package:kodari/tools/native_actions.dart';
+import 'package:kodari/tools/routine_scheduler.dart';
+import 'package:kodari/tools/tool_registry.dart';
+import 'package:kodari/tools/web_search_service.dart';
+import 'package:kodari/ui/widgets/kodari_floating_nub.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -439,7 +439,7 @@ void main() {
     expect(ToolRegistry.normalizeSpokenCommand('跑技能 估重含損耗'), '@技能 估重含損耗');
 
     expect(GemmaLiteRtEngine.detectSuggestedRoom('建立工廠雜記的房間'), '工廠雜記');
-    expect(GemmaLiteRtEngine.detectSuggestedRoom('幫我開一個南科案房間'), '南科案');
+    expect(GemmaLiteRtEngine.detectSuggestedRoom('幫我開一個示範專案房間'), '示範專案');
     expect(GemmaLiteRtEngine.detectSuggestedRoom('開新房間叫路亞釣魚'), '路亞釣魚');
   });
 
@@ -551,7 +551,7 @@ description: 天德大林案現場收尾核對清單
   test('V2 Batch 1: FastPathRouter, WebSearch DuckDuckGo + Peer Fallback & Dual-Channel Engine', () async {
     SharedPreferences.setMockInitialValues({
       'hako_gas_webapp_url': 'https://script.google.com/macros/s/test-deploy/exec',
-      'hako_gas_sync_token': 'weilong-secret',
+      'hako_gas_sync_token': 'demo-secret',
     });
 
     // 1. <2ms FastPathRouter Mode A natural spoken commands
@@ -572,9 +572,9 @@ description: 天德大林案現場收尾核對清單
     expect(alarm?.args['value'], '7點30');
     expect(alarm?.args['message'], '追金代交期');
 
-    final nav = FastPathRouter.matchFastPath('導航去古坑新生路');
+    final nav = FastPathRouter.matchFastPath('導航去中山路一段');
     expect(nav?.args['action'], 'openMap');
-    expect(nav?.args['value'], '古坑新生路');
+    expect(nav?.args['value'], '中山路一段');
 
     final dial = FastPathRouter.matchFastPath('打電話給 0912345678');
     expect(dial?.args['action'], 'dialPhone');
@@ -630,8 +630,8 @@ description: 天德大林案現場收尾核對清單
           'sources': [
             {
               'title': '雲端查證頁',
-              'url': 'https://weilong.example/info',
-              'domain': 'weilong.example',
+              'url': 'https://demo.example/info',
+              'domain': 'demo.example',
             }
           ],
         }),
@@ -646,7 +646,7 @@ description: 天德大林案現場收尾核對清單
     expect(webFallbackOut.ok, isTrue);
     expect(webFallbackOut.usedPeerFallback, isTrue);
     expect(webFallbackOut.peerName, 'Spark 參謀');
-    expect(webFallbackOut.sources.first.url, 'https://weilong.example/info');
+    expect(webFallbackOut.sources.first.url, 'https://demo.example/info');
 
     // 3. Dual-channel URL normalization & Channel B activation
     expect(

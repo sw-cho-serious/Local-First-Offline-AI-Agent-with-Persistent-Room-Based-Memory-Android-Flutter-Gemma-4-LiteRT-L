@@ -1,6 +1,6 @@
 // Ghost Wheel concept inspired by/adapted from https://github.com/vNeeL-code/GHOST (MIT License).
 // See THIRD_PARTY_NOTICES.md at the repository root.
-package com.weilong.xiaoliu
+package com.hako.kodari
 
 import android.Manifest
 import android.animation.Animator
@@ -83,21 +83,21 @@ class GhostOverlayService : Service() {
         const val KEY_Y_POS = "y_pos"
         const val KEY_WHEEL_SLOTS = "wheel_slots"
 
-        const val ACTION_START = "com.weilong.xiaoliu.ghost.START"
-        const val ACTION_STOP = "com.weilong.xiaoliu.ghost.STOP"
-        const val ACTION_APP_FOREGROUND = "com.weilong.xiaoliu.ghost.APP_FOREGROUND"
-        const val ACTION_APP_BACKGROUND = "com.weilong.xiaoliu.ghost.APP_BACKGROUND"
+        const val ACTION_START = "com.hako.kodari.ghost.START"
+        const val ACTION_STOP = "com.hako.kodari.ghost.STOP"
+        const val ACTION_APP_FOREGROUND = "com.hako.kodari.ghost.APP_FOREGROUND"
+        const val ACTION_APP_BACKGROUND = "com.hako.kodari.ghost.APP_BACKGROUND"
 
-        const val INTENT_ACTION_OPEN_WHEEL = "com.weilong.xiaoliu.ACTION_OPEN_WHEEL"
-        const val INTENT_ACTION_VOICE_DIRECT = "com.weilong.xiaoliu.ACTION_VOICE_DIRECT"
-        const val INTENT_ACTION_OPEN_ROOMS = "com.weilong.xiaoliu.ACTION_OPEN_ROOMS"
-        const val INTENT_ACTION_OPEN_TODOS = "com.weilong.xiaoliu.ACTION_OPEN_TODOS"
-        const val INTENT_ACTION_OPEN_CAMERA = "com.weilong.xiaoliu.ACTION_OPEN_CAMERA"
-        const val INTENT_ACTION_OPEN_NAV = "com.weilong.xiaoliu.ACTION_OPEN_NAV"
-        const val INTENT_ACTION_OPEN_CUTTING = "com.weilong.xiaoliu.ACTION_OPEN_CUTTING"
-        const val INTENT_ACTION_OPEN_TEXT = "com.weilong.xiaoliu.ACTION_OPEN_TEXT"
-        const val INTENT_ACTION_OPEN_ROUTINES = "com.weilong.xiaoliu.ACTION_OPEN_ROUTINES"
-        const val INTENT_ACTION_SPOKEN_TEXT = "com.weilong.xiaoliu.ACTION_SPOKEN_TEXT"
+        const val INTENT_ACTION_OPEN_WHEEL = "com.hako.kodari.ACTION_OPEN_WHEEL"
+        const val INTENT_ACTION_VOICE_DIRECT = "com.hako.kodari.ACTION_VOICE_DIRECT"
+        const val INTENT_ACTION_OPEN_ROOMS = "com.hako.kodari.ACTION_OPEN_ROOMS"
+        const val INTENT_ACTION_OPEN_TODOS = "com.hako.kodari.ACTION_OPEN_TODOS"
+        const val INTENT_ACTION_OPEN_CAMERA = "com.hako.kodari.ACTION_OPEN_CAMERA"
+        const val INTENT_ACTION_OPEN_NAV = "com.hako.kodari.ACTION_OPEN_NAV"
+        const val INTENT_ACTION_OPEN_CUTTING = "com.hako.kodari.ACTION_OPEN_CUTTING"
+        const val INTENT_ACTION_OPEN_TEXT = "com.hako.kodari.ACTION_OPEN_TEXT"
+        const val INTENT_ACTION_OPEN_ROUTINES = "com.hako.kodari.ACTION_OPEN_ROUTINES"
+        const val INTENT_ACTION_SPOKEN_TEXT = "com.hako.kodari.ACTION_SPOKEN_TEXT"
         const val EXTRA_SPOKEN_TEXT = "spoken_text"
 
         private const val CHANNEL_ID = "hako_ghost_overlay"

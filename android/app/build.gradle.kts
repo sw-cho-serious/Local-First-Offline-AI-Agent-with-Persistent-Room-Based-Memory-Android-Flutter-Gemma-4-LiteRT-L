@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.weilong.xiaoliu"
+    namespace = "com.hako.kodari"
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.weilong.xiaoliu"
+        applicationId = "com.hako.kodari"
         minSdk = 30
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

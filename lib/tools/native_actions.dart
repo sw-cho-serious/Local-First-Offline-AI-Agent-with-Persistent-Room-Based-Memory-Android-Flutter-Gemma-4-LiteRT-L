@@ -109,13 +109,13 @@ class DeviceRuntimeStatus {
 
 class NativeActions {
   static const MethodChannel _calendarChannel =
-      MethodChannel('com.weilong.hako/calendar');
+      MethodChannel('com.hako.kodari/calendar');
   static const MethodChannel _speechChannel =
-      MethodChannel('com.weilong.hako/speech');
+      MethodChannel('com.hako.kodari/speech');
   static const MethodChannel _deviceChannel =
-      MethodChannel('com.weilong.hako/device');
+      MethodChannel('com.hako.kodari/device');
   static const MethodChannel _nativeChannel =
-      MethodChannel('com.weilong.xiaoliu/native_actions');
+      MethodChannel('com.hako.kodari/native_actions');
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
@@ -301,7 +301,7 @@ class NativeActions {
 
     final id = safeTime.millisecondsSinceEpoch.remainder(100000);
     const androidDetails = AndroidNotificationDetails(
-      'xiaoliu_reminders',
+      'kodari_reminders',
       'KODARI 現場提醒',
       channelDescription: '出車、現場作業與待辦鬧鐘提醒',
       importance: Importance.max,

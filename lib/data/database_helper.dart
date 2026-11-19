@@ -30,7 +30,7 @@ class DatabaseHelper {
 
   Future<Database> _initDb() async {
     final factory = databaseFactoryOverride ?? databaseFactory;
-    final dbPath = dbPathOverride ?? p.join(await getDatabasesPath(), 'xiaoliu.db');
+    final dbPath = dbPathOverride ?? p.join(await getDatabasesPath(), 'kodari.db');
 
     return factory.openDatabase(
       dbPath,

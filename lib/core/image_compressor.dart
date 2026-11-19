@@ -31,7 +31,7 @@ class ImageCompressor {
     final compressed = compressBytes(sourceBytes);
 
     final appDir = await getApplicationDocumentsDirectory();
-    final photosDir = Directory(p.join(appDir.path, 'xiaoliu_photos'));
+    final photosDir = Directory(p.join(appDir.path, 'kodari_photos'));
     if (!await photosDir.exists()) {
       await photosDir.create(recursive: true);
     }

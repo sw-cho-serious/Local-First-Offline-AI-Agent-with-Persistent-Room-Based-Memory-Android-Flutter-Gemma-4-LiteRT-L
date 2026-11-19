@@ -152,37 +152,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _loadAllData();
       if (!mounted) return;
     }
-    if (action == 'com.weilong.xiaoliu.ACTION_OPEN_WHEEL') {
+    if (action == 'com.hako.kodari.ACTION_OPEN_WHEEL') {
       _nubController.openWheel();
-    } else if (action == 'com.weilong.xiaoliu.ACTION_VOICE_DIRECT') {
+    } else if (action == 'com.hako.kodari.ACTION_VOICE_DIRECT') {
       if (!_isGenerating && !_isListeningVoice) {
         await _startVoiceInput();
       }
-    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_ROOMS') {
+    } else if (action == 'com.hako.kodari.ACTION_OPEN_ROOMS') {
       _openRoomsFromNub();
-    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_TODOS') {
+    } else if (action == 'com.hako.kodari.ACTION_OPEN_TODOS') {
       _openTodosFromNub();
-    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_CAMERA') {
+    } else if (action == 'com.hako.kodari.ACTION_OPEN_CAMERA') {
       _showPhotoPickerSheet();
-    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_NAV') {
+    } else if (action == 'com.hako.kodari.ACTION_OPEN_NAV') {
       await _showNavigationQuickSheet();
-    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_CUTTING') {
+    } else if (action == 'com.hako.kodari.ACTION_OPEN_CUTTING') {
       await showOfflineLookupModal(
         context: context,
         db: widget.db,
         onToast: _showToast,
       );
-    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_TEXT') {
+    } else if (action == 'com.hako.kodari.ACTION_OPEN_TEXT') {
       _inputFocusNode.requestFocus();
-    } else if (action == 'com.weilong.xiaoliu.ACTION_OPEN_ROUTINES') {
+    } else if (action == 'com.hako.kodari.ACTION_OPEN_ROUTINES') {
       await showRoutineSchedulerModal(
         context: context,
         db: widget.db,
         onToast: _showToast,
       );
-    } else if (action.startsWith('com.weilong.xiaoliu.ACTION_SPOKEN_TEXT::')) {
+    } else if (action.startsWith('com.hako.kodari.ACTION_SPOKEN_TEXT::')) {
       final spoken = action
-          .substring('com.weilong.xiaoliu.ACTION_SPOKEN_TEXT::'.length)
+          .substring('com.hako.kodari.ACTION_SPOKEN_TEXT::'.length)
           .trim();
       if (spoken.isEmpty) return;
       final normalized = ToolRegistry.normalizeSpokenCommand(spoken);

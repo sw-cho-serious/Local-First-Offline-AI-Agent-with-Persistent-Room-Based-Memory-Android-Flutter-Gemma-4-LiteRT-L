@@ -38,7 +38,7 @@
    - Adapts automatically via `LayoutBuilder` between single-column drawer (phones) and dual-pane war-room mode (`>= 600dp` foldables).
    - Includes `📌` manual quick-save pins, `⭐` blurry-photo starring, and a top-right `📋` global inbox.
 5. **Local-First SQLite + Serverless Phase 2 Sync**
-   - Unified `xiaoliu.db` (`traits` / `rooms` / `data` / `messages` / `hooks`) with `updated_at`, `sync_status`, and soft-delete (`is_deleted`) fields ready for conflict-free sync.
+   - Unified `kodari.db` (`traits` / `rooms` / `data` / `messages` / `hooks`) with `updated_at`, `sync_status`, and soft-delete (`is_deleted`) fields ready for conflict-free sync.
    - Supports **Clipboard Lightning Handoff** (JSON export/import) and **Google Sheet + GAS Two-Way Sync** (with an auto-generated live dashboard sheet).
 
 6. **Desktop 6-Slot Customizable Ghost Wheel (60° symmetric hexagon)**
@@ -60,7 +60,7 @@ flowchart TB
     At["Single-Turn @ Tool Mounting & Long-Press Pin"]
     Mutex["AsyncMutex Singleton Queue"]
     Engine["LlmEngine -> GemmaLiteRtEngine (flutter_edge_ai_litertlm)"]
-    DB[("SQLite xiaoliu.db\ntraits | rooms | data | messages | hooks")]
+    DB[("SQLite kodari.db\ntraits | rooms | data | messages | hooks")]
     Tools["ToolRegistry & NativeActions\n(Calendar / Notifications / Offline Lookup / Append-Toggle)"]
     Sync["CloudSyncService (LWW Two-Way Merge)"]
     GAS["Google Apps Script (/exec)\nhako_gas_gateway.gs"]
@@ -106,7 +106,7 @@ lib/
 │   ├── screens/                  # SetupGateScreen, HomeScreen
 │   └── widgets/                  # SpiritAvatar, ActionCardWidget, Modals
 └── main.dart
-android/app/src/main/kotlin/com/weilong/xiaoliu/   # Native desktop Ghost Wheel
+android/app/src/main/kotlin/com/hako/kodari/   # Native desktop Ghost Wheel
 ├── GhostOverlayService.kt        # Floating wheel overlay
 ├── GhostActionRegistry.kt        # 14 modular action registry
 ├── GhostLocalStore.kt            # Wheel layout & local storage

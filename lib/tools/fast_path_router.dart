@@ -160,7 +160,7 @@ class FastPathRouter {
       );
     }
 
-    // 7. Spoken keyless web search (e.g., "上網查 304白鐵比重", "聯網搜尋 古坑五金行")
+    // 7. Spoken keyless web search (e.g., "上網查 304白鐵比重", "聯網搜尋 五金行")
     final webMatch = RegExp(
       r'^(?:上網查(?:一下)?|聯網查(?:詢|一下)?|上網搜尋?|網路搜尋?|Google查(?:一下)?)\s*(.+)$',
       caseSensitive: false,

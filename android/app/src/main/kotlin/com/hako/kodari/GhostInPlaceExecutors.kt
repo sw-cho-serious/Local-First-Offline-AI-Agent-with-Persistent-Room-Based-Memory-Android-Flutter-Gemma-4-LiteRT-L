@@ -1,6 +1,6 @@
 // Ghost Wheel concept inspired by/adapted from https://github.com/vNeeL-code/GHOST (MIT License).
 // See THIRD_PARTY_NOTICES.md at the repository root.
-package com.weilong.xiaoliu
+package com.hako.kodari
 
 import android.Manifest
 import android.annotation.SuppressLint

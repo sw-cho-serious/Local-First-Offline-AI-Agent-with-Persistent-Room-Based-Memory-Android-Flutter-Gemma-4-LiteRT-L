@@ -1648,7 +1648,7 @@ class ToolRegistry {
             rows: [
               '• @手電筒 開 / 關（@開燈 / @關燈）',
               '• @撥號 0912345678（安全預填撥號盤）',
-              '• @導航 古坑新生路（喚起 Google Maps）',
+              '• @導航 中山路一段（喚起 Google Maps）',
               '• @倒數 15分鐘 看烤漆（原生系統時鐘）',
               '• @系統設定 wifi / 藍牙 / 熱點',
             ],
@@ -1745,7 +1745,7 @@ class ToolRegistry {
       return const ToolExecutionOutcome(
         toolResponse: {'ok': false, 'error': '缺少搜尋關鍵字'},
         toolPill: '🌐 web_search：未輸入關鍵字',
-        directReply: '要查什麼？直接跟我說關鍵字，例如「@查網 古坑五金行」或「上網查 304白鐵比重」。',
+        directReply: '要查什麼？直接跟我說關鍵字，例如「@查網 五金行」或「上網查 304白鐵比重」。',
       );
     }
 

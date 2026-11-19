@@ -44,6 +44,6 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# 瑋隆工廠私密種子與本機模型隔離（嚴禁上 GitHub）
+# 個人私密種子與本機模型隔離（嚴禁上 GitHub）
 assets/seeds/*.local.json
 *.litertlm

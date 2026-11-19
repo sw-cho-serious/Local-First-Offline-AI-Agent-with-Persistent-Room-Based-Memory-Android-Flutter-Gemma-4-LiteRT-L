@@ -38,7 +38,7 @@
    - 支援手機單欄抽屜與摺疊機（`>= 600dp`）左右雙欄戰情室排版。
    - 內建 `📌` 手動補記保險絲、`⭐` 辨識失敗照片標星暫存，以及右上角 `📋` 全局未處理收件匣。
 5. **Local-First SQLite ＋ P2 雙機交班同步**
-   - 全 App 共用單一 `xiaoliu.db`（`traits` / `rooms` / `data` / `messages` / `hooks`），每張表皆內建 `updated_at`、`sync_status`、`is_deleted`（軟刪除防雲端復活）。
+   - 全 App 共用單一 `kodari.db`（`traits` / `rooms` / `data` / `messages` / `hooks`），每張表皆內建 `updated_at`、`sync_status`、`is_deleted`（軟刪除防雲端復活）。
    - 支援 **剪貼簿閃電交班（JSON 匯出/匯入）** 與 **Google Sheet + GAS 雲端自動雙向同步**（附自動彙整的現場交班看板）。
 
 6. **桌面懸浮六軌自訂輪盤（Ghost Wheel，60° 對稱六邊形）**
@@ -60,7 +60,7 @@ flowchart TB
     At["@ 單輪點名掛載 & 長按釘選"]
     Mutex["AsyncMutex 單例執行緒鎖"]
     Engine["LlmEngine 抽象層 -> GemmaLiteRtEngine (flutter_edge_ai_litertlm)"]
-    DB[("SQLite xiaoliu.db\ntraits | rooms | data | messages | hooks")]
+    DB[("SQLite kodari.db\ntraits | rooms | data | messages | hooks")]
     Tools["ToolRegistry & NativeActions\n(日曆 / 通知鬧鐘 / 離線查表 / Append-Toggle)"]
     Sync["CloudSyncService (LWW 雙向合併)"]
     GAS["Google Apps Script (/exec)\nhako_gas_gateway.gs"]
@@ -106,7 +106,7 @@ lib/
 │   ├── screens/                  # SetupGateScreen, HomeScreen
 │   └── widgets/                  # SpiritAvatar, ActionCardWidget, Modals
 └── main.dart
-android/app/src/main/kotlin/com/weilong/xiaoliu/   # 桌面懸浮六軌輪盤（原生）
+android/app/src/main/kotlin/com/hako/kodari/   # 桌面懸浮六軌輪盤（原生）
 ├── GhostOverlayService.kt        # 懸浮輪盤 Overlay
 ├── GhostActionRegistry.kt        # 14 項動作註冊表
 ├── GhostLocalStore.kt            # 輪盤配置與本機儲存

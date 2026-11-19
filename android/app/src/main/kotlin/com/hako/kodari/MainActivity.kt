@@ -1,4 +1,4 @@
-package com.weilong.xiaoliu
+package com.hako.kodari
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -63,10 +63,10 @@ import kotlin.math.sqrt
 
 class MainActivity : FlutterActivity(), SensorEventListener {
     companion object {
-        private const val CALENDAR_CHANNEL = "com.weilong.hako/calendar"
-        private const val SPEECH_CHANNEL = "com.weilong.hako/speech"
-        private const val DEVICE_CHANNEL = "com.weilong.hako/device"
-        private const val NATIVE_ACTIONS_CHANNEL = "com.weilong.xiaoliu/native_actions"
+        private const val CALENDAR_CHANNEL = "com.hako.kodari/calendar"
+        private const val SPEECH_CHANNEL = "com.hako.kodari/speech"
+        private const val DEVICE_CHANNEL = "com.hako.kodari/device"
+        private const val NATIVE_ACTIONS_CHANNEL = "com.hako.kodari/native_actions"
         private const val REQ_SPEECH = 9001
     }
 

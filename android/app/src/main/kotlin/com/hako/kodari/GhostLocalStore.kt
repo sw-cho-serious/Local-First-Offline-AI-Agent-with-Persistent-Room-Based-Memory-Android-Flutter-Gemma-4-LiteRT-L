@@ -1,6 +1,6 @@
 // Ghost Wheel concept inspired by/adapted from https://github.com/vNeeL-code/GHOST (MIT License).
 // See THIRD_PARTY_NOTICES.md at the repository root.
-package com.weilong.xiaoliu
+package com.hako.kodari
 
 import android.content.ContentValues
 import android.content.Context
@@ -10,13 +10,13 @@ import java.util.Locale
 import java.util.TreeSet
 
 /**
- * Direct native SQLite bridge to sqflite's `xiaoliu.db` for zero-app-launch GHOST actions.
+ * Direct native SQLite bridge to sqflite's `kodari.db` for zero-app-launch GHOST actions.
  * Strictly preserves existing `- [x]`, `- [O]`, `- [ ]` lines (Anti-Wipe) and marks
  * `sync_status = 'pending'` so cloud handoff picks up every desktop write.
  */
 object GhostLocalStore {
 
-    private const val DB_NAME = "xiaoliu.db"
+    private const val DB_NAME = "kodari.db"
     private const val MAIN_DATA_KEY = "para:areas:大廳雜記"
     private const val MAIN_ROOM_ID = "main"
 
