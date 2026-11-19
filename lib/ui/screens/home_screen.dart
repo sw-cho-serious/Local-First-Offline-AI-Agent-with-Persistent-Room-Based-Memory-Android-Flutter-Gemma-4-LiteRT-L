@@ -374,6 +374,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _resetIdleTimer();
   }
 
+  Future<void> _confirmClearMainMessages() async {
+    if (_isGenerating) {
+      _showToast('KODARI 還在處理這一輪，請稍等或按停止');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1E26),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+        ),
+        title: const Text(
+          '🗑️ 清空主房間對話紀錄？',
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          '將標記刪除主房間的所有對話氣泡（同步時也會將雲端 Sheet 對應訊息標為已刪除）。\n\n待辦清單、靈魂設定、Skill 與各案場小房間皆會完整保留。',
+          style: TextStyle(color: Color(0xFFD1D5DB), fontSize: 13, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消', style: TextStyle(color: Color(0xFF9CA3AF))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFB7185),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('確定清空', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final deletedCount = await widget.db.clearRoomMessages('main');
+    await widget.engine.invalidateSession();
+    widget.syncService.scheduleDebouncedPush();
+    await _loadRoomContent(_currentRoomId);
+    _showToast('🗑️ 已清空主房 $deletedCount 則對話（待辦與設定已保留）');
+  }
+
   Future<void> _confirmDeleteRoom(RoomRecord room) async {
     if (room.isMain) {
       _showToast('主房間不可刪除');
@@ -2082,6 +2128,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 case 'delete_room':
                   await _confirmDeleteRoom(room);
                   break;
+                case 'clear_main_messages':
+                  await _confirmClearMainMessages();
+                  break;
                 case 'traits':
                   await showTraitsEditorModal(
                     context: context,
@@ -2143,6 +2192,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const PopupMenuItem(value: 'archive_room', child: Text('😴 封存結案本房（變白睡覺）', style: TextStyle(color: Color(0xFFD1D5DB), fontSize: 13))),
               if (!room.isMain)
                 const PopupMenuItem(value: 'delete_room', child: Text('🗑️ 刪除此工作房間', style: TextStyle(color: Color(0xFFFB7185), fontSize: 13))),
+              if (room.isMain)
+                const PopupMenuItem(value: 'clear_main_messages', child: Text('🗑️ 清空主房對話紀錄', style: TextStyle(color: Color(0xFFFB7185), fontSize: 13))),
               const PopupMenuItem(value: 'traits', child: Text('🧠 檢視／編輯 KODARI 靈魂', style: TextStyle(color: Colors.white, fontSize: 13))),
               const PopupMenuItem(value: 'tts_settings', child: Text('🔊 語音語速與音色設定', style: TextStyle(color: Colors.white, fontSize: 13))),
               const PopupMenuItem(value: 'settings', child: Text('⚙️ 模型與 GPU/CPU 設定', style: TextStyle(color: Colors.white, fontSize: 13))),

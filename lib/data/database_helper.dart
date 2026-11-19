@@ -716,6 +716,31 @@ class DatabaseHelper {
     await batch.commit(noResult: true);
   }
 
+  /// Soft-deletes all chat messages in [roomId] while preserving room metadata,
+  /// todos/data, and traits (preserving tombstones for P2 cloud sync).
+  Future<int> clearRoomMessages(String roomId) async {
+    final db = await database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final count = await db.update(
+      'messages',
+      {'is_deleted': 1, 'sync_status': 'pending'},
+      where: 'room_id = ? AND is_deleted = 0',
+      whereArgs: [roomId],
+    );
+    await db.update(
+      'rooms',
+      {
+        'rolling_summary': '',
+        'summarized_until_msg_id': 0,
+        'updated_at': now,
+        'sync_status': 'pending',
+      },
+      where: 'room_id = ?',
+      whereArgs: [roomId],
+    );
+    return count;
+  }
+
   Future<void> updateRoomSummary({
     required String roomId,
     required String summary,
